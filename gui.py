@@ -180,14 +180,27 @@ class SettingsPage(ttk.Frame):
         ttk.Label(acct, text="Margin Level:").grid(row=5, column=0, sticky="w", padx=(0,5))
         ttk.Label(acct, textvariable=self.margin_level_var).grid(row=5, column=1, sticky="w")
 
+        # --- Trading Hours ---
+        hours_frame = ttk.Labelframe(self, text="Trading Hours (Safe Strategy)", padding=10)
+        hours_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        hours_frame.columnconfigure(1, weight=1)
+
+        self.start_hour_var = tk.StringVar(value=str(self.controller.settings.general.trading_start_hour))
+        ttk.Label(hours_frame, text="Start Hour (0-23):").grid(row=0, column=0, sticky="w", padx=(0,5))
+        ttk.Entry(hours_frame, textvariable=self.start_hour_var).grid(row=0, column=1, sticky="ew")
+
+        self.end_hour_var = tk.StringVar(value=str(self.controller.settings.general.trading_end_hour))
+        ttk.Label(hours_frame, text="End Hour (1-24):").grid(row=1, column=0, sticky="w", padx=(0,5))
+        ttk.Entry(hours_frame, textvariable=self.end_hour_var).grid(row=1, column=1, sticky="ew")
+
         # --- Actions & Status ---
         actions = ttk.Frame(self)
-        actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10,0))
+        actions.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10,0))
         ttk.Button(actions, text="Save Settings", command=self.save_settings).pack(side="left", padx=5)
         ttk.Button(actions, text="Connect", command=self.attempt_connection).pack(side="left", padx=5)
 
         self.status = ttk.Label(self, text="Disconnected", anchor="center")
-        self.status.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(5,0))
+        self.status.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(5,0))
 
     def update_account_info(self, account_id: str, balance: float | None, equity: float | None, used_margin: float | None, free_margin: float | None, margin_level: float | None):
         """Public method to update account info StringVars."""
@@ -206,6 +219,14 @@ class SettingsPage(ttk.Frame):
             self.controller.settings.openapi.default_ctid_trader_account_id = int(self.account_id_entry_var.get())
         except (ValueError, TypeError):
             self.controller.settings.openapi.default_ctid_trader_account_id = None
+
+        try:
+            self.controller.settings.general.trading_start_hour = int(self.start_hour_var.get())
+            self.controller.settings.general.trading_end_hour = int(self.end_hour_var.get())
+        except (ValueError, TypeError):
+            messagebox.showerror("Invalid Input", "Trading hours must be integers.")
+            return
+
         self.controller.settings.save()
         messagebox.showinfo("Settings Saved", "Your settings have been saved successfully.")
 
@@ -348,10 +369,9 @@ class TradingPage(ttk.Frame):
         self.equity_var_tp = tk.StringVar(value="–")
 
         # configure grid
-        # Adjusted row count for new account info section AND data readiness label
-        for r in range(13): # Increased range for new row + data readiness
+        for r in range(14): # Set non-expanding rows
             self.rowconfigure(r, weight=0)
-        self.rowconfigure(13, weight=1) # Adjusted log row index
+        self.rowconfigure(14, weight=1) # Make the output log row expandable
         self.columnconfigure(1, weight=1)
 
 
