@@ -782,7 +782,7 @@ class Trader:
         """Helper to update trader balance and equity from a ProtoOATrader object."""
         print(log_message)
         if trader_proto:
-            print(f"Full ProtoOATrader object received in _update_trader_details: {trader_proto}")
+            print(f"DEBUG: Raw trader_proto object received:\n{trader_proto}\n")
 
             # Safely get ctidTraderAccountId for logging, though it's not set here directly
             logged_ctid = getattr(trader_proto, 'ctidTraderAccountId', 'N/A')
