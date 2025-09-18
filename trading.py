@@ -1022,10 +1022,14 @@ class Trader:
                     }], index=[current_tf_bar['timestamp']])
                     completed_bar_df.index.name = 'timestamp'
 
-                    # Append to history
-                    self.ohlc_history[symbol_name][tf_str] = pd.concat([
-                        self.ohlc_history[symbol_name][tf_str], completed_bar_df
-                    ])
+                    # Append to history, avoiding concat with empty dataframe
+                    history_df = self.ohlc_history[symbol_name][tf_str]
+                    if history_df.empty:
+                        self.ohlc_history[symbol_name][tf_str] = completed_bar_df
+                    else:
+                        self.ohlc_history[symbol_name][tf_str] = pd.concat([
+                            history_df, completed_bar_df
+                        ])
 
                     # Trim history
                     history_df = self.ohlc_history[symbol_name][tf_str]
