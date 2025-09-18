@@ -192,7 +192,9 @@ class Trader:
         self.balance: Optional[float] = None
         self.equity: Optional[float] = None
         self.currency: Optional[str] = None
-        self.used_margin: Optional[float] = None # For margin used
+        self.used_margin: Optional[float] = None
+        self.free_margin: Optional[float] = None
+        self.margin_level: Optional[float] = None
 
         # Position data
         self.open_positions: Dict[int, Position] = {}
@@ -808,14 +810,17 @@ class Trader:
                  print(f"  depositAssetId (currency ID) for {logged_ctid}: {currency_val}")
 
 
-            # Placeholder for margin - we need to see what fields are available from logs
-            # Example:
-            # used_margin_val = getattr(trader_proto, 'usedMargin', None) # Or 'totalMarginUsed' etc.
-            # if used_margin_val is not None:
-            #     self.used_margin = used_margin_val / 100.0
-            #     print(f"  Updated used_margin for {logged_ctid}: {self.used_margin}")
-            # else:
-            #     print(f"  Used margin not found in ProtoOATrader for {logged_ctid}. self.used_margin remains: {self.used_margin}")
+            used_margin_val = getattr(trader_proto, 'usedMargin', None)
+            if used_margin_val is not None:
+                self.used_margin = used_margin_val / 100.0
+
+            free_margin_val = getattr(trader_proto, 'freeMargin', None)
+            if free_margin_val is not None:
+                self.free_margin = free_margin_val / 100.0
+
+            margin_level_val = getattr(trader_proto, 'marginLevel', None)
+            if margin_level_val is not None:
+                self.margin_level = margin_level_val
 
             # If a callback is registered, invoke it with the latest summary
             if self.on_account_update:
@@ -1691,7 +1696,9 @@ class Trader:
             "account_id": self.account_id if self.account_id else "connecting...",
             "balance": self.balance,
             "equity": self.equity,
-            "margin": self.used_margin
+            "used_margin": self.used_margin,
+            "free_margin": self.free_margin,
+            "margin_level": self.margin_level
         }
 
     def calculate_total_pnl(self) -> float:
@@ -1777,14 +1784,11 @@ class Trader:
         """Returns the price history for a specific symbol."""
         return list(self.price_histories.get(symbol, []))
 
-    def get_ohlc_bar_counts(self) -> Dict[str, int]:
-        """Returns a dictionary with the count of available OHLC bars for each timeframe for the default symbol."""
+    def get_ohlc_bar_counts(self, symbol_name: str) -> Dict[str, int]:
+        """Returns a dictionary with the count of available OHLC bars for a specific symbol."""
         counts = {}
-        # This method needs to be updated to support multi-symbol checks if needed.
-        # For now, let's assume it checks the default symbol for strategy readiness.
-        default_symbol_name = self.symbol_id_to_name_map.get(self.default_symbol_id)
-        if default_symbol_name and default_symbol_name in self.ohlc_history:
-            for tf_str, df_history in self.ohlc_history[default_symbol_name].items():
+        if symbol_name and symbol_name in self.ohlc_history:
+            for tf_str, df_history in self.ohlc_history[symbol_name].items():
                 counts[tf_str] = len(df_history)
         return counts
 
@@ -2115,13 +2119,13 @@ class Trader:
         print(f"Received ProtoOAGetTrendbarsRes for symbol ID {response.symbolId}, period {ProtoOATrendbarPeriod.Name(response.period)} with {len(response.trendbar)} bars.")
 
         symbol_id = response.symbolId
-        period_enum = response.period # This is the ProtoOATrendbarPeriod enum value
+        symbol_name = self.symbol_id_to_name_map.get(symbol_id)
+        if not symbol_name:
+            print(f"Warning: Received trendbars for unknown symbol ID {symbol_id}. Cannot process.")
+            return
 
-        tf_str_map = {
-            ProtoOATrendbarPeriod.M1: '1m',
-            ProtoOATrendbarPeriod.M5: '5m',
-            
-        }
+        period_enum = response.period
+        tf_str_map = { ProtoOATrendbarPeriod.M1: '1m', ProtoOATrendbarPeriod.M5: '5m' }
         tf_str = tf_str_map.get(period_enum)
         if not tf_str:
             print(f"Warning: Received trendbars for unmapped period {ProtoOATrendbarPeriod.Name(period_enum)}. Cannot process.")
@@ -2129,51 +2133,39 @@ class Trader:
 
         symbol_details = self.symbol_details_map.get(symbol_id)
         if not symbol_details or not hasattr(symbol_details, 'digits'):
-            print(f"Warning: Symbol details (especially digits) not found for symbol ID {symbol_id}. Cannot accurately process trendbar prices.")
+            print(f"Warning: Symbol details not found for symbol ID {symbol_id}. Cannot process trendbar prices.")
             return
-
         price_scale_factor = 10**symbol_details.digits
 
         processed_bars = []
         for bar_data in response.trendbar:
-            
             ts_millis = bar_data.utcTimestampInMinutes * 60 * 1000
             dt_object = datetime.fromtimestamp(ts_millis / 1000, tz=timezone.utc)
-
             low_price = bar_data.low / price_scale_factor
             open_price = (bar_data.low + bar_data.deltaOpen) / price_scale_factor
             high_price = (bar_data.low + bar_data.deltaHigh) / price_scale_factor
             close_price = (bar_data.low + bar_data.deltaClose) / price_scale_factor
-
             processed_bars.append({
-                'timestamp': dt_object,
-                'open': open_price,
-                'high': high_price,
-                'low': low_price,
-                'close': close_price,
-                'volume': bar_data.volume
+                'timestamp': dt_object, 'open': open_price, 'high': high_price,
+                'low': low_price, 'close': close_price, 'volume': bar_data.volume
             })
 
         if not processed_bars:
-            print(f"No bars processed from ProtoOAGetTrendbarsRes for {tf_str}.")
+            print(f"No bars processed from ProtoOAGetTrendbarsRes for {symbol_name}/{tf_str}.")
             return
 
-        # Sort bars by timestamp just in case API doesn't guarantee it (it usually does)
         processed_bars.sort(key=lambda x: x['timestamp'])
+        new_df = pd.DataFrame(processed_bars).set_index('timestamp')
 
-        new_df = pd.DataFrame(processed_bars)
+        self._initialize_data_for_symbol(symbol_name)
+        self.ohlc_history[symbol_name][tf_str] = new_df
+        print(f"Populated {tf_str} OHLC history for {symbol_name} with {len(new_df)} bars.")
 
-        self.ohlc_history[tf_str] = new_df
-        print(f"Populated {tf_str} OHLC history with {len(new_df)} bars for symbol ID {symbol_id}. Last bar timestamp: {new_df.iloc[-1]['timestamp'] if not new_df.empty else 'N/A'}")
-
-        
         if not new_df.empty:
-            last_hist_bar = new_df.iloc[-1]
-            
-            self.current_bars[tf_str] = {
+            self.current_bars[symbol_name][tf_str] = {
                 'timestamp': None, 'open': None, 'high': None, 'low': None, 'close': None, 'volume': 0
             }
-            print(f"Reset current_bar for {tf_str} to allow live aggregation post-history fetch.")
+            print(f"Reset current_bar for {symbol_name}/{tf_str} to allow live aggregation post-history fetch.")
 
         # Potentially, trigger a GUI update for data readiness explicitly here if needed,
         # though the periodic GUI poll should pick it up.
