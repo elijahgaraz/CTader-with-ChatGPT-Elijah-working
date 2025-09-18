@@ -101,7 +101,9 @@ class MainApplication(ThemedTk):
                                 account_id=data.get("account_id", "–"),
                                 balance=data.get("balance"),
                                 equity=data.get("equity"),
-                                margin=data.get("margin")
+                                used_margin=data.get("used_margin"),
+                                free_margin=data.get("free_margin"),
+                                margin_level=data.get("margin_level")
                             )
                 elif msg_type == "show_ai_advice":
                     trading_page._show_ai_advice(data)
@@ -166,9 +168,17 @@ class SettingsPage(ttk.Frame):
         ttk.Label(acct, text="Equity:").grid(row=2, column=0, sticky="w", padx=(0,5))
         ttk.Label(acct, textvariable=self.equity_var).grid(row=2, column=1, sticky="w")
 
-        self.margin_var = tk.StringVar(value="–")
-        ttk.Label(acct, text="Margin:").grid(row=3, column=0, sticky="w", padx=(0,5))
-        ttk.Label(acct, textvariable=self.margin_var).grid(row=3, column=1, sticky="w")
+        self.used_margin_var = tk.StringVar(value="–")
+        ttk.Label(acct, text="Used Margin:").grid(row=3, column=0, sticky="w", padx=(0,5))
+        ttk.Label(acct, textvariable=self.used_margin_var).grid(row=3, column=1, sticky="w")
+
+        self.free_margin_var = tk.StringVar(value="–")
+        ttk.Label(acct, text="Free Margin:").grid(row=4, column=0, sticky="w", padx=(0,5))
+        ttk.Label(acct, textvariable=self.free_margin_var).grid(row=4, column=1, sticky="w")
+
+        self.margin_level_var = tk.StringVar(value="–")
+        ttk.Label(acct, text="Margin Level:").grid(row=5, column=0, sticky="w", padx=(0,5))
+        ttk.Label(acct, textvariable=self.margin_level_var).grid(row=5, column=1, sticky="w")
 
         # --- Actions & Status ---
         actions = ttk.Frame(self)
@@ -179,12 +189,14 @@ class SettingsPage(ttk.Frame):
         self.status = ttk.Label(self, text="Disconnected", anchor="center")
         self.status.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(5,0))
 
-    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, margin: float | None):
+    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, used_margin: float | None, free_margin: float | None, margin_level: float | None):
         """Public method to update account info StringVars."""
         self.account_id_var.set(str(account_id) if account_id is not None else "–")
         self.balance_var.set(f"{balance:.2f}" if balance is not None else "–")
         self.equity_var.set(f"{equity:.2f}" if equity is not None else "–")
-        self.margin_var.set(f"{margin:.2f}" if margin is not None else "–")
+        self.used_margin_var.set(f"{used_margin:.2f}" if used_margin is not None else "–")
+        self.free_margin_var.set(f"{free_margin:.2f}" if free_margin is not None else "–")
+        self.margin_level_var.set(f"{margin_level:.2f}%" if margin_level is not None else "–")
 
     def save_settings(self):
         self.controller.settings.openapi.client_id = self.client_id_var.get()
@@ -269,22 +281,30 @@ class SettingsPage(ttk.Frame):
         self.equity_var.set(f"{equity_val:.2f}" if equity_val is not None else "Can't retrieve equity")
         
         # Margin
-        margin_val = summary.get("margin")
-        self.margin_var.set(f"{margin_val:.2f}" if margin_val is not None else "–")
+        used_margin_val = summary.get("used_margin")
+        free_margin_val = summary.get("free_margin")
+        margin_level_val = summary.get("margin_level")
+        self.used_margin_var.set(f"{used_margin_val:.2f}" if used_margin_val is not None else "–")
+        self.free_margin_var.set(f"{free_margin_val:.2f}" if free_margin_val is not None else "–")
+        self.margin_level_var.set(f"{margin_level_val:.2f}%" if margin_level_val is not None else "–")
 
         # Prepare display strings for messagebox, handling None gracefully
         display_account_id = str(account_id_val) if account_id_val is not None else "N/A"
         display_balance = f"{balance_val:.2f}" if balance_val is not None else "N/A"
         display_equity = f"{equity_val:.2f}" if equity_val is not None else "N/A"
-        display_margin = f"{margin_val:.2f}" if margin_val is not None else "N/A"
+        display_used_margin = f"{used_margin_val:.2f}" if used_margin_val is not None else "N/A"
+        display_free_margin = f"{free_margin_val:.2f}" if free_margin_val is not None else "N/A"
+        display_margin_level = f"{margin_level_val:.2f}%" if margin_level_val is not None else "N/A"
 
         messagebox.showinfo(
             "Connected",
             f"Successfully connected!\n\n"
             f"Account ID: {display_account_id}\n"
-            f"Balance: {display_balance}\n" # Already handles None correctly for display_balance
-            f"Equity: {display_equity}\n"   # Already handles None correctly for display_equity
-            f"Margin: {display_margin}"     # Already handles None correctly for display_margin
+            f"Balance: {display_balance}\n"
+            f"Equity: {display_equity}\n"
+            f"Used Margin: {display_used_margin}\n"
+            f"Free Margin: {display_free_margin}\n"
+            f"Margin Level: {display_margin_level}"
         )
         self.status.config(text="Connected ✅", foreground="green")
 
@@ -357,6 +377,10 @@ class TradingPage(ttk.Frame):
 
         ttk.Label(acc_info_frame, text="Equity:").grid(row=2, column=0, sticky="w", padx=(0,5))
         ttk.Label(acc_info_frame, textvariable=self.equity_var_tp).grid(row=2, column=1, sticky="w")
+
+        self.used_margin_var_tp = tk.StringVar(value="–")
+        ttk.Label(acc_info_frame, text="Used Margin:").grid(row=3, column=0, sticky="w", padx=(0,5))
+        ttk.Label(acc_info_frame, textvariable=self.used_margin_var_tp).grid(row=3, column=1, sticky="w")
 
 
         # Symbol dropdown
@@ -492,7 +516,8 @@ class TradingPage(ttk.Frame):
             return
 
         required_bars_map = strategy_instance.get_required_bars()
-        available_bars_map = self.trader.get_ohlc_bar_counts()
+        selected_symbol = self.symbol_var.get()
+        available_bars_map = self.trader.get_ohlc_bar_counts(selected_symbol)
 
         status_messages = []
         all_ready = True
@@ -557,12 +582,12 @@ class TradingPage(ttk.Frame):
             self.price_var.set("–") # Ensure price is reset if no valid symbol selected
 
 
-    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, margin: float | None):
+    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, used_margin: float | None, free_margin: float | None, margin_level: float | None):
         """Public method to update account info StringVars from the controller."""
         self.account_id_var_tp.set(str(account_id) if account_id is not None else "–")
         self.balance_var_tp.set(f"{balance:.2f}" if balance is not None else "–")
         self.equity_var_tp.set(f"{equity:.2f}" if equity is not None else "–")
-        # Note: TradingPage does not display margin, but the method signature is kept consistent.
+        self.used_margin_var_tp.set(f"{used_margin:.2f}" if used_margin is not None else "–")
 
     def _on_symbol_select(self, event=None):
         """Handles the event when a new symbol is selected from the dropdown."""
