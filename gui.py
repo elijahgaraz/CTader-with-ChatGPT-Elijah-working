@@ -821,8 +821,10 @@ class TradingPage(ttk.Frame):
             current_tick_price = self.trader.get_market_price(symbol)
             print(f"Tick price: {current_tick_price}")
 
-            # Fetch OHLC data. Data is already prepared in trading.py
-            ohlc_1m_df = self.trader.ohlc_history.get('1m', pd.DataFrame())
+            # Fetch OHLC data for the correct symbol
+            symbol_ohlc_data = self.trader.ohlc_history.get(symbol, {})
+            ohlc_1m_df = symbol_ohlc_data.get('1m', pd.DataFrame())
+            ohlc_15s_df = symbol_ohlc_data.get('15s', pd.DataFrame())
             
             # BUG FIX: Removed redundant and buggy dataframe processing.
             # The dataframe from trader.ohlc_history is already indexed by timestamp.
@@ -834,7 +836,7 @@ class TradingPage(ttk.Frame):
                 symbol,
                 {
                     'ohlc_1m': ohlc_1m_df,
-                    'ohlc_15s': self.trader.ohlc_history.get('15s', pd.DataFrame()),
+                    'ohlc_15s': ohlc_15s_df,
                     'current_equity': self.trader.equity,
                     'pip_position': None,
                     'current_price_tick': current_tick_price
