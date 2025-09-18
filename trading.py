@@ -1109,25 +1109,30 @@ class Trader:
 
     def _handle_execution_event(self, event: ProtoOAExecutionEvent) -> None:
         """Handles execution events to track open positions."""
+        print(f"\n--- Handling Execution Event ---\nRaw Event: {event}\n---------------------------------")
+
         position_data = event.position
         order_data = event.order
 
         if not hasattr(position_data, 'positionId') or not position_data.positionId:
+            print("DEBUG: Event does not have a positionId. Skipping.")
             return  # Not an event related to a specific position
 
         position_id = position_data.positionId
+        print(f"DEBUG: Processing event for positionId: {position_id}")
         status = position_data.positionStatus
 
         # Position is opened or modified
         if status == ProtoOAPositionStatus.POSITION_STATUS_OPEN:
+            print(f"DEBUG: Position {position_id} is OPEN.")
             symbol_name = self.symbol_id_to_name_map.get(position_data.symbolId)
             if not symbol_name:
-                print(f"Execution event for unknown symbol ID {position_data.symbolId}")
+                print(f"DEBUG: Execution event for unknown symbol ID {position_data.symbolId}. Cannot track position.")
                 return
 
             symbol_details = self.symbol_details_map.get(position_data.symbolId)
             if not symbol_details or not symbol_details.lotSize:
-                print(f"Cannot process execution event: missing details for symbol {symbol_name}")
+                print(f"DEBUG: Cannot process execution event: missing details for symbol {symbol_name}. Requesting details.")
                 # Request details and hope for the best next time
                 self._send_get_symbol_details_request([position_data.symbolId])
                 return
@@ -1143,18 +1148,21 @@ class Trader:
                 open_timestamp=order_data.executionTimestamp
             )
             self.open_positions[position_id] = new_pos
-            print(f"Tracking opened/modified position: {new_pos}")
+            print(f"DEBUG: Position {position_id} added/updated in tracked list. Total tracked positions: {len(self.open_positions)}")
             # Ensure we are subscribed to this symbol for P&L updates
             self.handle_symbol_selection(symbol_name)
 
         # Position is closed
         elif status == ProtoOAPositionStatus.POSITION_STATUS_CLOSED:
+            print(f"DEBUG: Position {position_id} is CLOSED.")
             if position_id in self.open_positions:
                 closed_pos = self.open_positions.pop(position_id)
-                print(f"Position closed and removed from tracking: {closed_pos}")
+                print(f"DEBUG: Position {position_id} removed from tracking. Total tracked positions: {len(self.open_positions)}")
             else:
                 # This can happen if the position was opened before the app started
-                print(f"Received close event for untracked position ID: {position_id}")
+                print(f"DEBUG: Received close event for untracked position ID: {position_id}")
+        else:
+            print(f"DEBUG: Position {position_id} has unhandled status: {ProtoOAPositionStatus.Name(status)}")
 
     def _handle_send_error(self, failure: Any) -> None:
         print(f"Send error: {failure.getErrorMessage()}")
