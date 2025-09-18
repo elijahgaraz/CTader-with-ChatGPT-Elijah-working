@@ -356,9 +356,33 @@ class TradingPage(ttk.Frame):
     # COMMON_PAIRS removed, will be populated dynamically
 
     def __init__(self, parent, controller):
-        super().__init__(parent, padding=10)
+        super().__init__(parent)
         self.controller = controller
         self.trader = controller.trader
+
+        # --- Create a scrollable frame ---
+        # Main frame holds canvas and scrollbar
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(self)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, padding=10)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        # --- End of scrollable frame setup ---
+
+        # Now, place all widgets into 'scrollable_frame' instead of 'self'
+        content_frame = scrollable_frame
 
         self.is_scalping = False
         self.scalping_thread = None
@@ -368,20 +392,20 @@ class TradingPage(ttk.Frame):
         self.balance_var_tp = tk.StringVar(value="–")
         self.equity_var_tp = tk.StringVar(value="–")
 
-        # configure grid
+        # configure grid for the content_frame
         for r in range(14): # Set non-expanding rows
-            self.rowconfigure(r, weight=0)
-        self.rowconfigure(14, weight=1) # Make the output log row expandable
-        self.columnconfigure(1, weight=1)
+            content_frame.rowconfigure(r, weight=0)
+        content_frame.rowconfigure(14, weight=1) # Make the output log row expandable
+        content_frame.columnconfigure(1, weight=1)
 
 
         # ← Settings button
-        ttk.Button(self, text="← Settings", command=lambda: controller.show_page('SettingsPage')).grid(
+        ttk.Button(content_frame, text="← Settings", command=lambda: controller.show_page('SettingsPage')).grid(
             row=0, column=0, columnspan=2, pady=(0,10), sticky="w" # columnspan to align with other full-width elements
         )
 
         # Account Info Display
-        acc_info_frame = ttk.Labelframe(self, text="Account Information", padding=5)
+        acc_info_frame = ttk.Labelframe(content_frame, text="Account Information", padding=5)
         acc_info_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0,10))
         acc_info_frame.columnconfigure(1, weight=1)
 
@@ -405,69 +429,69 @@ class TradingPage(ttk.Frame):
 
         # Symbol dropdown
         # Row indices are +1 from original due to Account Info section added at row=1
-        ttk.Label(self, text="Symbol:").grid(row=2, column=0, sticky="w", padx=(0,5))
+        ttk.Label(content_frame, text="Symbol:").grid(row=2, column=0, sticky="w", padx=(0,5))
         self.symbol_var = tk.StringVar(value="Loading symbols...") # Initial placeholder
-        self.cb_symbol = ttk.Combobox(self, textvariable=self.symbol_var,
+        self.cb_symbol = ttk.Combobox(content_frame, textvariable=self.symbol_var,
                                  values=[], state="readonly") # Initially empty
         self.cb_symbol.grid(row=2, column=1, sticky="ew") # Corrected from row=1
         self.cb_symbol.bind("<<ComboboxSelected>>", self._on_symbol_select)
 
         # Price display + refresh
-        ttk.Label(self, text="Price:").grid(row=3, column=0, sticky="w", padx=(0,5)) # Was row=2
+        ttk.Label(content_frame, text="Price:").grid(row=3, column=0, sticky="w", padx=(0,5)) # Was row=2
         self.price_var = tk.StringVar(value="–")
-        pf = ttk.Frame(self)
+        pf = ttk.Frame(content_frame)
         pf.grid(row=3, column=1, sticky="ew") # Was row=2
         ttk.Label(pf, textvariable=self.price_var,
                   font=("TkDefaultFont", 12, "bold")).pack(side="left")
         ttk.Button(pf, text="↻", width=2, command=self.refresh_price).pack(side="right")
 
         # Profit target
-        ttk.Label(self, text="Profit Target (pips):").grid(row=4, column=0, sticky="w", padx=(0,5)) # Was row=3
+        ttk.Label(content_frame, text="Profit Target (pips):").grid(row=4, column=0, sticky="w", padx=(0,5)) # Was row=3
         self.tp_var = tk.DoubleVar(value=10.0)
-        ttk.Entry(self, textvariable=self.tp_var).grid(row=4, column=1, sticky="ew") # Was row=3
+        ttk.Entry(content_frame, textvariable=self.tp_var).grid(row=4, column=1, sticky="ew") # Was row=3
 
         # Order size
-        ttk.Label(self, text="Order Size (lots):").grid(row=5, column=0, sticky="w", padx=(0,5)) # Was row=4
+        ttk.Label(content_frame, text="Order Size (lots):").grid(row=5, column=0, sticky="w", padx=(0,5)) # Was row=4
         self.size_var = tk.DoubleVar(value=1.0)
-        ttk.Entry(self, textvariable=self.size_var).grid(row=5, column=1, sticky="ew") # Was row=4
+        ttk.Entry(content_frame, textvariable=self.size_var).grid(row=5, column=1, sticky="ew") # Was row=4
 
         # Stop-loss
-        ttk.Label(self, text="Stop Loss (pips):").grid(row=6, column=0, sticky="w", padx=(0,5)) # Was row=5
+        ttk.Label(content_frame, text="Stop Loss (pips):").grid(row=6, column=0, sticky="w", padx=(0,5)) # Was row=5
         self.sl_var = tk.DoubleVar(value=5.0)
-        ttk.Entry(self, textvariable=self.sl_var).grid(row=6, column=1, sticky="ew") # Was row=5
+        ttk.Entry(content_frame, textvariable=self.sl_var).grid(row=6, column=1, sticky="ew") # Was row=5
 
         # Batch profit target
-        ttk.Label(self, text="Batch Profit Target:").grid(row=7, column=0, sticky="w", padx=(0,5))
+        ttk.Label(content_frame, text="Batch Profit Target:").grid(row=7, column=0, sticky="w", padx=(0,5))
         self.batch_profit_var = tk.DoubleVar(value=self.controller.settings.general.batch_profit_target)
-        ttk.Entry(self, textvariable=self.batch_profit_var).grid(row=7, column=1, sticky="ew")
+        ttk.Entry(content_frame, textvariable=self.batch_profit_var).grid(row=7, column=1, sticky="ew")
 
         # Strategy selector
-        ttk.Label(self, text="Strategy:").grid(row=8, column=0, sticky="w", padx=(0,5))
+        ttk.Label(content_frame, text="Strategy:").grid(row=8, column=0, sticky="w", padx=(0,5))
         self.strategy_var = tk.StringVar(value="Safe")
         strategy_names = ["Safe", "Moderate", "Aggressive", "Momentum", "Mean Reversion"]
-        cb_strat = ttk.Combobox(self, textvariable=self.strategy_var, values=strategy_names, state="readonly")
+        cb_strat = ttk.Combobox(content_frame, textvariable=self.strategy_var, values=strategy_names, state="readonly")
         cb_strat.grid(row=8, column=1, sticky="ew")
         cb_strat.bind("<<ComboboxSelected>>", lambda e: self._update_data_readiness_display(execute_now=True))
 
 
         # Data Readiness Display
-        ttk.Label(self, text="Data Readiness:").grid(row=9, column=0, sticky="w", padx=(0,5), pady=(10,0))
+        ttk.Label(content_frame, text="Data Readiness:").grid(row=9, column=0, sticky="w", padx=(0,5), pady=(10,0))
         self.data_readiness_var = tk.StringVar(value="Initializing...")
-        self.data_readiness_label = ttk.Label(self, textvariable=self.data_readiness_var)
+        self.data_readiness_label = ttk.Label(content_frame, textvariable=self.data_readiness_var)
         self.data_readiness_label.grid(row=9, column=1, sticky="ew", pady=(10,0))
 
         # ChatGPT Analysis Button
-        self.ai_button = ttk.Button(self, text="ChatGPT Analysis", command=self.run_chatgpt_analysis)
+        self.ai_button = ttk.Button(content_frame, text="ChatGPT Analysis", command=self.run_chatgpt_analysis)
         self.ai_button.grid(row=10, column=0, columnspan=2, pady=(10, 0))
 
         # Start/Stop Scalping buttons
-        self.start_button = ttk.Button(self, text="Begin Scalping", command=self.start_scalping, state="normal") # Initially disabled
+        self.start_button = ttk.Button(content_frame, text="Begin Scalping", command=self.start_scalping, state="normal") # Initially disabled
         self.start_button.grid(row=11, column=0, columnspan=2, pady=(10,0))
-        self.stop_button  = ttk.Button(self, text="Stop Scalping", command=self.stop_scalping, state="disabled")
+        self.stop_button  = ttk.Button(content_frame, text="Stop Scalping", command=self.stop_scalping, state="disabled")
         self.stop_button.grid(row=12, column=0, columnspan=2, pady=(5,0))
 
         # Session Stats frame
-        stats = ttk.Labelframe(self, text="Session Stats", padding=10)
+        stats = ttk.Labelframe(content_frame, text="Session Stats", padding=10)
         stats.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(10,0))
         stats.columnconfigure(1, weight=1)
 
@@ -483,9 +507,9 @@ class TradingPage(ttk.Frame):
         ttk.Label(stats, textvariable=self.win_rate_var).grid(row=2, column=1, sticky="w")
 
         # Output log
-        self.output = tk.Text(self, height=8, wrap="word", state="disabled")
+        self.output = tk.Text(content_frame, height=8, wrap="word", state="disabled")
         self.output.grid(row=14, column=0, columnspan=2, sticky="nsew", pady=(10,0))
-        sb = ttk.Scrollbar(self, command=self.output.yview)
+        sb = ttk.Scrollbar(content_frame, command=self.output.yview)
         sb.grid(row=14, column=2, sticky="ns")
         self.output.config(yscrollcommand=sb.set)
 

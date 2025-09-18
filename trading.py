@@ -1831,15 +1831,16 @@ class Trader:
             )
 
     def close_all_positions(self) -> None:
-        """Attempt to close all open positions on the connected account."""
-        if not USE_OPENAPI_LIB:
-            print("Mock close_all_positions called.")
+        """Closes all currently tracked open positions."""
+        if not self.open_positions:
+            print("No open positions to close.")
             return
-        # TODO: Implement logic using ProtoOAClosePositionReq messages
-        try:
-            print("close_all_positions not fully implemented in this example")
-        except Exception as e:
-            print(f"Error closing positions: {e}")
+
+        print(f"Requesting to close all {len(self.open_positions)} open positions...")
+        # Create a copy of the keys to avoid issues with modifying the dict while iterating
+        position_ids_to_close = list(self.open_positions.keys())
+        for pos_id in position_ids_to_close:
+            self.close_position(pos_id)
 
     def place_market_order(
         self,
