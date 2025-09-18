@@ -633,7 +633,10 @@ class TradingPage(ttk.Frame):
             # 1. Gather data
             symbol = self.symbol_var.get().replace("/", "")
             price = self.trader.get_market_price(symbol)
-            ohlc_1m_df = self.trader.ohlc_history.get('1m', pd.DataFrame())
+
+            # Get OHLC data for the selected symbol
+            symbol_ohlc = self.trader.ohlc_history.get(symbol, {})
+            ohlc_1m_df = symbol_ohlc.get('1m', pd.DataFrame())
 
             if price is None or ohlc_1m_df.empty:
                 self.controller._ui_queue.put(("show_ai_error", ("Could not perform analysis: Market data is missing.",)))
