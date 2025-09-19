@@ -118,6 +118,7 @@ try:
         ProtoOASubscribeSpotsReq, ProtoOASubscribeSpotsRes,
         ProtoOASpotEvent, ProtoOATraderUpdatedEvent,
         ProtoOANewOrderReq, ProtoOAExecutionEvent,
+        ProtoOAOrderErrorEvent,
         ProtoOAErrorRes,
         # Specific message types for deserialization
         ProtoOAGetCtidProfileByTokenRes,
@@ -149,7 +150,7 @@ TOKEN_FILE_PATH = "tokens.json"
 from typing import Callable
 
 class Trader:
-    def __init__(self, settings, history_size: int = 100, on_account_update: Optional[Callable[[Dict[str, Any]], None]] = None, on_positions_update: Optional[Callable[[Dict[int, Position]], None]] = None):
+    def __init__(self, settings, history_size: int = 100, on_account_update: Optional[Callable[[Dict[str, Any]], None]] = None, on_positions_update: Optional[Callable[[Dict[int, Position]], None]] = None, on_log_message: Optional[Callable[[str], None]] = None):
         """
         Initializes the Trader.
 
@@ -158,10 +159,12 @@ class Trader:
             history_size: The maximum size of the price history to maintain.
             on_account_update: An optional callback function to be invoked with account summary updates.
             on_positions_update: An optional callback function to be invoked with position updates.
+            on_log_message: An optional callback function for logging messages to the GUI.
         """
         self.settings = settings
         self.on_account_update = on_account_update
         self.on_positions_update = on_positions_update
+        self.on_log_message = on_log_message
         self.is_connected: bool = False
         self._is_client_connected: bool = False
         self._last_error: str = ""
@@ -369,6 +372,11 @@ class Trader:
         elif isinstance(actual_message, ProtoOAGetTrendbarsRes):
             print("  Dispatching to _handle_get_trendbars_response")
             self._handle_get_trendbars_response(actual_message)
+        elif isinstance(actual_message, ProtoOAOrderErrorEvent):
+            error_message = f"[Order Error] {actual_message.errorCode}: {actual_message.description}"
+            print(error_message)
+            if self.on_log_message:
+                self.on_log_message(error_message)
         elif isinstance(actual_message, ProtoHeartbeatEvent):
             print("  Received heartbeat.")
         elif isinstance(actual_message, ProtoOAErrorRes): # Specific OA error

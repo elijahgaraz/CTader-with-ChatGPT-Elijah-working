@@ -29,7 +29,8 @@ class MainApplication(ThemedTk):
         self.trader = Trader(
             self.settings,
             on_account_update=self._handle_account_update,
-            on_positions_update=self._handle_positions_update
+            on_positions_update=self._handle_positions_update,
+            on_log_message=self._handle_log_message
         )
         self.after(100, self._process_ui_queue)
 
@@ -84,6 +85,10 @@ class MainApplication(ThemedTk):
     def _handle_positions_update(self, positions: Dict[int, Any]):
         """Callback for the Trader to push position updates."""
         self._ui_queue.put(("positions_update", positions))
+
+    def _handle_log_message(self, message: str):
+        """Callback for the Trader to push log messages."""
+        self._ui_queue.put(("_log", message))
 
     def _process_ui_queue(self):
         """Process items from the UI queue."""
