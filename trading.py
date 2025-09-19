@@ -1607,14 +1607,11 @@ class Trader:
             # This is P&L in quote currency.
             pnl_in_quote = price_diff * pos.volume_lots * symbol_details.lotSize
 
-            # Convert P&L to account currency (self.currency)
-            quote_currency = pos.symbol_name[3:]
-            if self.currency and quote_currency == self.currency:
-                pos.current_pnl = pnl_in_quote
-                total_pnl += pnl_in_quote
-            else:
-                # For simplicity, we are not handling cross-currency conversion here.
-                pass
+            # For now, we assume the quote currency is the account currency.
+            # This is a simplifying assumption that works for pairs like EUR/USD on a USD account.
+            # A more robust solution would handle cross-currency conversion.
+            pos.current_pnl = pnl_in_quote
+            total_pnl += pnl_in_quote
         return total_pnl
 
     def start_equity_updater(self):
@@ -1902,7 +1899,7 @@ class Trader:
 
             volume_in_lots = position_data.tradeData.volume / symbol_details.lotSize
 
-            # The 'price' field from ProtoOAPosition is already a correctly scaled double. No need to divide.
+            # The 'price' field from ProtoOAPosition is already a correctly scaled double.
             open_price = position_data.price
 
             new_pos = Position(
@@ -1921,7 +1918,6 @@ class Trader:
             if position_id in self.open_positions:
                 closed_pos = self.open_positions.pop(position_id)
                 print(f"Position closed: {closed_pos}")
-
 
     def _send_get_trendbars_request(
         self,
