@@ -63,6 +63,14 @@ class MainApplication(ThemedTk):
 
         self.show_page('SettingsPage')
 
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def on_closing(self):
+        """Handle the window closing event."""
+        print("Closing application...")
+        self.trader.disconnect()
+        self.destroy()
+
     def show_page(self, page_name: str):
         if page_name in ['TradingPage', 'PerformancePage']:
             # Place notebook on grid and raise it

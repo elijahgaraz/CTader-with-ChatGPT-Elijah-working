@@ -1638,18 +1638,18 @@ class Trader:
     def _equity_update_loop(self):
         """Periodically calculates P&L and updates equity and position data."""
         while not self._stop_equity_updater.is_set():
-            if self.balance is not None:
+            if self.balance is not None and self.open_positions:
                 pnl = self.calculate_total_pnl() # This now updates P&L on each position object
                 new_equity = self.balance + pnl
 
-                # Push account summary update (for equity)
+                # Only push an account update if equity has changed to avoid flooding the queue
                 if new_equity != self.equity:
                     self.equity = new_equity
                     if self.on_account_update:
                         summary = self.get_account_summary()
                         self.on_account_update(summary)
 
-                # Push positions update (for performance tab)
+                # Always push position updates to ensure real-time P&L display
                 if self.on_positions_update:
                     self.on_positions_update(self.open_positions)
 
