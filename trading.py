@@ -1916,12 +1916,13 @@ class Trader:
         if client_msg_id:
             req.clientOrderId = client_msg_id
 
+        print(f"DEBUG: Sending ProtoOANewOrderReq:\n{req}")
         try:
             deferred = self._client.send(req)
             # Add callbacks for logging the result of the send operation
             deferred.addCallbacks(
-                lambda response: print(f"Order request sent successfully. Server Response: {response}"),
-                lambda failure: print(f"Failed to send order request. Failure: {failure}")
+                lambda response: print(f"DEBUG: Order request successful. Full Server Response:\n{response}"),
+                lambda failure: print(f"DEBUG: Failed to send order request. Full Failure object:\n{failure}")
             )
             return True, f"Order request for {volume_in_units} units ({volume_lots} lots) of {symbol_name} sent."
         except Exception as e:
