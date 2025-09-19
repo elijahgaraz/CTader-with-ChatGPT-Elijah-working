@@ -1147,7 +1147,7 @@ class Trader:
                 trade_side=ProtoOATradeSide.Name(position_data.tradeData.tradeSide),
                 volume_lots=volume_in_lots,
                 open_price=position_data.price,
-                open_timestamp=order_data.executionTimestamp if order_data else position_data.utcLastUpdateTimestamp
+                open_timestamp=position_data.tradeData.openTimestamp
             )
             self.open_positions[position_id] = new_pos
             print(f"Position opened/updated: {new_pos}")
