@@ -126,8 +126,6 @@ try:
         ProtoOASymbolsListReq, ProtoOASymbolsListRes, # For fetching symbol list (light symbols)
         ProtoOASymbolByIdReq, ProtoOASymbolByIdRes,    # For fetching full symbol details
         ProtoOAClosePositionReq, # For closing positions
-        ProtoOAGetPositionsReq, # For fetching open positions on connect
-        ProtoOAGetPositionsRes, # For fetching open positions on connect
         ProtoOAGetTrendbarsReq, # Added for historical data
         ProtoOAGetTrendbarsRes  # Added for historical data
     )
@@ -374,9 +372,6 @@ class Trader:
         elif isinstance(actual_message, ProtoOAGetTrendbarsRes):
             print("  Dispatching to _handle_get_trendbars_response")
             self._handle_get_trendbars_response(actual_message)
-        elif isinstance(actual_message, ProtoOAGetPositionsRes):
-            print("  Dispatching to _handle_get_positions_response")
-            self._handle_get_positions_response(actual_message)
         elif isinstance(actual_message, ProtoOAOrderErrorEvent):
             error_message = f"[Order Error] {actual_message.errorCode}: {actual_message.description}"
             print(error_message)
@@ -497,48 +492,6 @@ class Trader:
         # This response does not confirm a live trading session for an account.
         # That's the role of ProtoOAAccountAuthRes.
         pass
-
-    def _send_get_positions_request(self) -> None:
-        """Sends a request to get all open positions for the current account."""
-        if not self.ctid_trader_account_id:
-            return
-        print(f"Requesting open positions for account {self.ctid_trader_account_id}")
-        req = ProtoOAGetPositionsReq()
-        req.ctidTraderAccountId = self.ctid_trader_account_id
-        self._client.send(req)
-
-    def _handle_get_positions_response(self, response: ProtoOAGetPositionsRes):
-        """Handles the response containing the list of open positions."""
-        print(f"Received {len(response.position)} open positions.")
-        for position_data in response.position:
-            if position_data.positionStatus == ProtoOAPositionStatus.POSITION_STATUS_OPEN:
-                symbol_id = position_data.tradeData.symbolId
-                symbol_name = self.symbol_id_to_name_map.get(symbol_id)
-                if not symbol_name:
-                    print(f"Warning: Skipping pre-existing position {position_data.positionId} due to unknown symbol ID {symbol_id}")
-                    continue
-
-                symbol_details = self.symbol_details_map.get(symbol_id)
-                if not symbol_details or not symbol_details.lotSize:
-                    print(f"Warning: Missing details for symbol {symbol_name}, cannot track pre-existing position {position_data.positionId} yet.")
-                    self._send_get_symbol_details_request([symbol_id])
-                    continue
-
-                volume_in_lots = position_data.tradeData.volume / symbol_details.lotSize
-                # Correctly scale the open price
-                open_price = position_data.price / (10**symbol_details.digits)
-
-                pos = Position(
-                    position_id=position_data.positionId,
-                    symbol_name=symbol_name,
-                    trade_side=ProtoOATradeSide.Name(position_data.tradeData.tradeSide),
-                    volume_lots=volume_in_lots,
-                    open_price=open_price,
-                    open_timestamp=position_data.tradeData.openTimestamp
-                )
-                self.open_positions[pos.position_id] = pos
-                print(f"Tracking pre-existing position: {pos}")
-                self.handle_symbol_selection(symbol_name)
 
     def _handle_subscribe_spots_response(self, response_wrapper: Any, subscribed_symbol_ids: List[int]) -> None:
         """Handles the response from a ProtoOASubscribeSpotsReq."""
@@ -746,9 +699,8 @@ class Trader:
             # self._send_subscribe_spots_request(symbol_id) # Example
 
             # After successful account auth, fetch initial state
-            print("Account authenticated. Requesting initial state (symbols, positions)...")
+            print("Account authenticated. Requesting initial state (symbols)...")
             self._send_get_symbols_list_request()
-            self._send_get_positions_request()
             self.start_equity_updater()
 
         else:
