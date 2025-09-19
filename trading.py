@@ -840,129 +840,6 @@ class Trader:
             print("_update_trader_details received empty trader_proto.")
         return None
 
-    
-        """Handles incoming spot events (price updates)."""
-        # Log the raw event for debugging if needed, can be very noisy
-        # print(f"Received ProtoOASpotEvent: {event}")
-
-        # --- Trendbar Investigation (removed as it caused ValueError and trendbars were not populated) ---
-
-        symbol_id = event.symbolId
-
-        if self.default_symbol_id is not None and symbol_id == self.default_symbol_id:
-            # --- DETAILED TIMESTAMP LOGGING (Temporary for Investigation) ---
-            # Check if 'bid' field exists before trying to access it for logging, to be safe,
-            # though it's expected in a ProtoOASpotEvent.
-            bid_for_log = event.bid if hasattr(event, 'bid') else "N/A (field missing)" # More robust check
-            print(f"DEBUG Trader: SpotEvent for default symbol {symbol_id}. Timestamp={event.timestamp}, Bid={bid_for_log}")
-            # --- END DETAILED TIMESTAMP LOGGING ---
-
-            # The fields event.bid and event.timestamp are standard int64 fields in ProtoOASpotEvent.
-            # For proto3, scalar fields don't use HasField in the same way as optional fields in proto2,
-            # and will have default values (e.g., 0) if not explicitly set.
-            # Given the logs show they are populated, we can proceed.
-            # A price of 0 or timestamp of 0 would be unusual and might indicate an issue,
-            # but the HasField check was the primary blocker for valid data.
-            if event.timestamp == 0: # A timestamp of 0 is highly unlikely for a valid event
-                print(f"Spot Event for default symbol {symbol_id} has timestamp 0. Skipping OHLC update.")
-                return
-
-            # Ensure bid field actually exists and has a value before using it for OHLC.
-            # While HasField was problematic, directly using event.bid without checking if the server
-            # *could* send an event without it (even if against spec) might be risky.
-            # However, for OHLC, a missing bid is as problematic as a missing timestamp.
-            # For now, the timestamp == 0 check is primary. If timestamp is valid, we assume bid is also valid/present.
-            # The previous log showed bid was present when timestamp was 0, so server is sending it.
-
-            # Scale the price
-            raw_bid_price = event.bid # Directly access, as HasField was problematic. Assumed present if timestamp > 0.
-            price_scale_factor = 100000.0 # Default
-            if symbol_id in self.symbol_details_map:
-                digits = self.symbol_details_map[symbol_id].digits
-                price_scale_factor = float(10**digits)
-
-            current_price = raw_bid_price / price_scale_factor
-
-            # Update simple price history (for immediate price checks, GUI, etc.)
-            self.price_history.append(current_price)
-            if len(self.price_history) > self.history_size:
-                self.price_history.pop(0)
-
-            # OHLC Aggregation Logic
-            event_dt = datetime.fromtimestamp(event.timestamp / 1000, tz=timezone.utc)
-
-            for tf_str, tf_seconds in self.timeframes_seconds.items():
-                current_tf_bar = self.current_bars[tf_str]
-
-                if current_tf_bar['timestamp'] is None: # First tick for this timeframe or after a reset
-                    current_tf_bar['timestamp'] = event_dt.replace(second= (event_dt.second // tf_seconds) * tf_seconds, microsecond=0)
-                    current_tf_bar['open'] = current_price
-                    current_tf_bar['high'] = current_price
-                    current_tf_bar['low'] = current_price
-                    current_tf_bar['close'] = current_price
-                    current_tf_bar['volume'] = 1 # Tick count
-                else:
-                    # Check if current tick falls into a new bar interval
-                    bar_end_time = current_tf_bar['timestamp'] + pd.Timedelta(seconds=tf_seconds)
-
-                    if event_dt >= bar_end_time:
-
-                        # Add completed bar to history (if it has data)
-                        if current_tf_bar['open'] is not None:
-                            completed_bar_data = {
-                                'timestamp': current_tf_bar['timestamp'], # Start time of the completed bar
-                                'open': current_tf_bar['open'],
-                                'high': current_tf_bar['high'],
-                                'low': current_tf_bar['low'],
-                                'close': current_tf_bar['close'], # Close of the *previous* bar
-                                'volume': current_tf_bar['volume']
-                            }
-                            # Use pd.concat instead of append for DataFrames
-                            self.ohlc_history[tf_str] = pd.concat([
-                                self.ohlc_history[tf_str],
-                                pd.DataFrame([completed_bar_data])
-                            ], ignore_index=True)
-                            
-                            df = self.ohlc_history[tf_str]
-                            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-                            df.set_index('timestamp', inplace=True)
-                            self.ohlc_history[tf_str] = df
-
-                            # Keep history to max_ohlc_history_len
-                            if len(self.ohlc_history[tf_str]) > self.max_ohlc_history_len:
-                                self.ohlc_history[tf_str] = self.ohlc_history[tf_str].iloc[-self.max_ohlc_history_len:]
-
-                            # Optional: Log completed bar
-                            # print(f"Completed {tf_str} bar: O={completed_bar_data['open']:.5f} H={completed_bar_data['high']:.5f} L={completed_bar_data['low']:.5f} C={completed_bar_data['close']:.5f} V={completed_bar_data['volume']}")
-
-                        # Start a new bar
-                        current_tf_bar['timestamp'] = event_dt.replace(second=(event_dt.second // tf_seconds) * tf_seconds, microsecond=0)
-                        current_tf_bar['open'] = current_price
-                        current_tf_bar['high'] = current_price
-                        current_tf_bar['low'] = current_price
-                        current_tf_bar['close'] = current_price
-                        current_tf_bar['volume'] = 1
-                    else:
-                        # Update current (still forming) bar
-                        current_tf_bar['high'] = max(current_tf_bar['high'], current_price)
-                        current_tf_bar['low'] = min(current_tf_bar['low'], current_price)
-                        current_tf_bar['close'] = current_price
-                        current_tf_bar['volume'] += 1
-
-            # Optional: Log the latest tick after processing for OHLC
-            # print(f"Spot Event for {symbol_id} (Default Symbol): Bid Price = {current_price:.5f}, History Size: {len(self.price_history)}")
-
-        # else: # This was for non-default symbols, can be ignored for now
-            # print(f"Spot Event for {symbol_id} (Default Symbol) received, but no bid price found in event.") # This log might be confusing now
-
-        # Additionally, one might want to store the latest tick for all subscribed symbols,
-        # This part is an extension and not strictly for self.price_history of the default symbol.
-        # if symbol_id in self.subscribed_spot_symbol_ids:
-        #    latest_bid = event.bid / price_scale_factor if event.HasField('bid') else None
-        #    latest_ask = event.ask / price_scale_factor if event.HasField('ask') else None
-        #    print(f"Tick for subscribed symbol {symbol_id}: Bid={latest_bid}, Ask={latest_ask}")
-        #    # Store this latest_bid/ask in a suitable structure if needed for other parts of the app
-        
     def _initialize_data_for_symbol(self, symbol_name: str):
         """Initializes the data structures for a new symbol if they don't exist."""
         if symbol_name not in self.price_histories:
@@ -1118,7 +995,6 @@ class Trader:
     def _handle_execution_event(self, event: ProtoOAExecutionEvent) -> None:
         """Handles execution events to track open positions by focusing on the position object."""
         position_data = event.position
-        order_data = event.order
 
         # An execution event must have position data with a valid ID to be trackable.
         if not hasattr(position_data, 'positionId') or not position_data.positionId:
@@ -2001,40 +1877,50 @@ class Trader:
             return None
             
     def _handle_execution_event(self, event: ProtoOAExecutionEvent) -> None:
-        # TODO: handle executions
-        print(f"Received ProtoOAExecutionEvent: {event}")
- 
+        """Handles execution events to track open positions by focusing on the position object."""
+        position_data = event.position
 
-        # Example: update internal order status, notify GUI, log P&L.
-        order_info = event.order
-        position_info = event.position # if position was opened/closed/modified
+        # An execution event must have position data with a valid ID to be trackable.
+        if not hasattr(position_data, 'positionId') or not position_data.positionId:
+            return
 
-        log_msg = f"Execution Event: Type={ProtoOAExecutionType.Name(event.executionType)}"
-        if hasattr(order_info, 'orderId') and order_info.orderId:
-            log_msg += f", OrderID={order_info.orderId}"
-        if hasattr(order_info, 'clientOrderId') and order_info.clientOrderId: # This is clientMsgId
-             log_msg += f", ClientMsgID={order_info.clientOrderId}"
+        position_id = position_data.positionId
+        status = position_data.positionStatus
 
-        if event.executionType == ProtoOAExecutionType.ORDER_FILLED:
-            log_msg += (f", Status={ProtoOAOrderStatus.Name(order_info.orderStatus)}"
-                        f", FilledVol={order_info.executedVolume}/{order_info.tradeData.volume}"
-                        f" at {order_info.executionPrice}")
-            # Here you would update P&L, trade counts, etc.
-            # Potentially signal to the GUI that the trade was successful.
+        if status == ProtoOAPositionStatus.POSITION_STATUS_OPEN:
+            symbol_id = position_data.tradeData.symbolId
+            symbol_name = self.symbol_id_to_name_map.get(symbol_id)
+            if not symbol_name:
+                print(f"Warning: Execution event for unknown symbol ID {symbol_id}")
+                return
 
-        elif event.executionType == ProtoOAExecutionType.ORDER_REJECTED:
-            log_msg += f", Reason={event.errorCode if hasattr(event, 'errorCode') else 'Unknown'}" # Use .errorCode for rejection reason
-            if hasattr(event, 'description') and event.description: # Check if description field exists and is not empty
-                log_msg += f" - {event.description}"
-            # Signal to GUI about rejection
+            symbol_details = self.symbol_details_map.get(symbol_id)
+            if not symbol_details or not hasattr(symbol_details, 'lotSize') or not hasattr(symbol_details, 'digits'):
+                self._send_get_symbol_details_request([symbol_id])
+                print(f"Warning: Missing details for symbol {symbol_name}, cannot track position yet. Requesting details.")
+                return
 
-        # Add more handling for other execution types:
-        # ORDER_ACCEPTED, ORDER_CANCELLED, ORDER_EXPIRED, etc.
+            volume_in_lots = position_data.tradeData.volume / symbol_details.lotSize
 
-        print(log_msg)
+            # The 'price' field from ProtoOAPosition is already a correctly scaled double. No need to divide.
+            open_price = position_data.price
 
-        # If you have a way to notify the GUI (e.g., through a queue or callback):
-        # self.gui_update_queue.put(("execution_update", log_msg)) # Example
+            new_pos = Position(
+                position_id=position_id,
+                symbol_name=symbol_name,
+                trade_side=ProtoOATradeSide.Name(position_data.tradeData.tradeSide),
+                volume_lots=volume_in_lots,
+                open_price=open_price,
+                open_timestamp=position_data.tradeData.openTimestamp
+            )
+            self.open_positions[position_id] = new_pos
+            print(f"Position opened/updated: {new_pos}")
+            self.handle_symbol_selection(symbol_name)
+
+        elif status == ProtoOAPositionStatus.POSITION_STATUS_CLOSED:
+            if position_id in self.open_positions:
+                closed_pos = self.open_positions.pop(position_id)
+                print(f"Position closed: {closed_pos}")
 
 
     def _send_get_trendbars_request(
