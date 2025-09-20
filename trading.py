@@ -204,6 +204,7 @@ class Trader:
         self.symbol_details_map: Dict[int, Any] = {} # Map from symbolId to ProtoOASymbol
         self.default_symbol_id: Optional[int] = None # Symbol ID for the default_symbol from settings
         self.subscribed_spot_symbol_ids: set[int] = set()
+        self.is_symbols_loaded: bool = False
 
 
         self._client: Optional[Client] = None
@@ -598,6 +599,10 @@ class Trader:
                 self.default_symbol_id = light_symbol_proto.symbolId
                 print(f"Found default_symbol: '{self.settings.general.default_symbol}' with ID: {self.default_symbol_id} (Light symbol details). Requesting full details.")
 
+        self.symbol_id_to_name_map = {v: k for k, v in self.symbols_map.items()}
+        self.is_symbols_loaded = True
+        print(f"DEBUG: Symbol maps populated. is_symbols_loaded = {self.is_symbols_loaded}")
+
         if self.default_symbol_id is not None:
             if self.default_symbol_id not in self.symbol_details_map:
                 self._send_get_symbol_details_request([self.default_symbol_id])
@@ -643,8 +648,17 @@ class Trader:
             # This case should ideally not be hit if ProtoOASymbolByIdReq was successful for default_symbol_id
             print(f"Warning: Full details for default symbol ID {self.default_symbol_id} not found in response, cannot subscribe to its spots yet.")
 
-    def _subscribe_and_fetch_history_for_symbol(self, symbol_id: int):
+    def _subscribe_and_fetch_history_for_symbol(self, symbol_id: int, retry_count=0):
+        if not self.is_symbols_loaded and retry_count < 10:
+            print(f"DEBUG: Symbols not loaded yet. Retrying fetch for symbol ID {symbol_id} in 0.5s...")
+            threading.Timer(0.5, self._subscribe_and_fetch_history_for_symbol, [symbol_id, retry_count + 1]).start()
+            return
+
         symbol_name = self.symbol_id_to_name_map.get(symbol_id, "Unknown")
+        if symbol_name == "Unknown":
+            print(f"ERROR: Could not find name for symbol ID {symbol_id} after retries. Aborting history fetch.")
+            return
+
         print(f"Proceeding with subscription and history fetch for '{symbol_name}' (ID: {symbol_id}).")
 
         # Ensure ctidTraderAccountId is available
