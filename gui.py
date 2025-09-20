@@ -234,6 +234,10 @@ class SettingsPage(ttk.Frame):
         except (ValueError, TypeError):
             self.controller.settings.openapi.default_ctid_trader_account_id = None
             messagebox.showerror("Invalid Input", "Trading hours and Account ID must be valid integers.")
+
+        self._log(f"[Settings] Saving start hour: {self.controller.settings.general.trading_start_hour}")
+        self._log(f"[Settings] Saving end hour: {self.controller.settings.general.trading_end_hour}")
+
         self.controller.settings.save()
         messagebox.showinfo("Settings Saved", "Your settings have been saved successfully.")
 
