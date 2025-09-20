@@ -49,8 +49,6 @@ class SafeStrategy(Strategy):
         target_mult: float = 0.5,
         buffer_mult: float = 0.05,  # changed from 0.2 to allow more trades; adjust as needed
         volume_mult: float = 1.5,
-        session_start: time = time(6, 0),
-        session_end: time = time(18, 0),
         session_tz: str = "Europe/London",
     ):
         # Trend & volatility settings
@@ -63,8 +61,8 @@ class SafeStrategy(Strategy):
         self.volume_mult = volume_mult
 
         # Trading session window
-        self.session_start = session_start
-        self.session_end = session_end
+        self.session_start = time(self.settings.general.trading_start_hour, 0)
+        self.session_end = time(self.settings.general.trading_end_hour, 0)
         self.session_zone = ZoneInfo(session_tz)
 
         # Trailing stop state
