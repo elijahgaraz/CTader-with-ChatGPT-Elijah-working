@@ -1888,7 +1888,7 @@ class Trader:
 
         req.fromTimestamp = from_timestamp
         req.toTimestamp = to_timestamp
-        req.count = count  # Optional, but safe to include
+        # req.count = count # Removing this as it might be causing issues
 
         print(
             f"Sending ProtoOAGetTrendbarsReq:\n"

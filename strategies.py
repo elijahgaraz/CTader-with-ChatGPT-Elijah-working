@@ -64,6 +64,7 @@ class SafeStrategy(Strategy):
         self.session_start = time(self.settings.general.trading_start_hour, 0)
         self.session_end = time(self.settings.general.trading_end_hour, 0)
         self.session_zone = ZoneInfo(session_tz)
+        print(f"DEBUG: SafeStrategy initialized with trading hours: {self.session_start.strftime('%H:%M')} - {self.session_end.strftime('%H:%M')} UTC")
 
         # Trailing stop state
         self.trailing_activated = False
