@@ -200,6 +200,7 @@ class Trader:
 
         # Symbol data
         self.symbols_map: Dict[str, int] = {} # Map from symbol name to symbolId
+        self.symbol_id_to_name_map: Dict[int, str] = {}
         self.symbol_details_map: Dict[int, Any] = {} # Map from symbolId to ProtoOASymbol
         self.default_symbol_id: Optional[int] = None # Symbol ID for the default_symbol from settings
         self.subscribed_spot_symbol_ids: set[int] = set()
@@ -598,8 +599,11 @@ class Trader:
                 print(f"Found default_symbol: '{self.settings.general.default_symbol}' with ID: {self.default_symbol_id} (Light symbol details). Requesting full details.")
 
         if self.default_symbol_id is not None:
-            # Now that we have the ID, request full details for the default symbol
-            self._send_get_symbol_details_request([self.default_symbol_id])
+            if self.default_symbol_id not in self.symbol_details_map:
+                self._send_get_symbol_details_request([self.default_symbol_id])
+            else:
+                # If we already have details, proceed to subscribe
+                self._subscribe_and_fetch_history_for_symbol(self.default_symbol_id)
         else:
             print(f"Warning: Default symbol '{self.settings.general.default_symbol}' not found in symbols list for account {self.ctid_trader_account_id}.")
             self._last_error = f"Default symbol '{self.settings.general.default_symbol}' not found."
@@ -634,39 +638,35 @@ class Trader:
         # After updating the details map, check if we have details for the default symbol
         # and if so, proceed to subscribe for its spot prices.
         if self.default_symbol_id is not None and self.default_symbol_id in self.symbol_details_map:
-            # Get the default symbol's name from symbols_map for logging
-            default_symbol_name_for_logging = "Unknown"
-            for name, id_val in self.symbols_map.items():
-                if id_val == self.default_symbol_id:
-                    default_symbol_name_for_logging = name
-                    break
-
-            print(f"Full details for default symbol '{default_symbol_name_for_logging}' (ID: {self.default_symbol_id}) received. Subscribing to spots.")
-
-            # Ensure ctidTraderAccountId is available before subscribing
-            if self.ctid_trader_account_id is not None:
-                # Fetch historical data for 1m timeframe for the default symbol
-                # Assuming M1 is ProtoOATrendbarPeriod.M1
-                # Fetch max_ohlc_history_len bars (e.g., 200)
-                print(f"Fetching initial historical 1m trendbars for default symbol {default_symbol_name_for_logging} (ID: {self.default_symbol_id}).")
-                self._send_get_trendbars_request(
-                    symbol_id=self.default_symbol_id,
-                    period=ProtoOATrendbarPeriod.M1, # Assuming M1 is the desired period
-                    count=self.max_ohlc_history_len
-                )
-                # Note: We might want to fetch for other timeframes too if strategies use them.
-                # For now, focusing on '1m'.
-
-                # After requesting historical data, subscribe to live spots
-                self._send_subscribe_spots_request(self.ctid_trader_account_id, [self.default_symbol_id])
-                self.subscribed_spot_symbol_ids.add(self.default_symbol_id)
-            else:
-                print(f"Error: ctidTraderAccountId not set. Cannot subscribe to spots or fetch history for {default_symbol_name_for_logging}.")
-                self._last_error = "ctidTraderAccountId not available for spot subscription after getting symbol details."
+            self._subscribe_and_fetch_history_for_symbol(self.default_symbol_id)
         elif self.default_symbol_id is not None:
             # This case should ideally not be hit if ProtoOASymbolByIdReq was successful for default_symbol_id
             print(f"Warning: Full details for default symbol ID {self.default_symbol_id} not found in response, cannot subscribe to its spots yet.")
 
+    def _subscribe_and_fetch_history_for_symbol(self, symbol_id: int):
+        symbol_name = self.symbol_id_to_name_map.get(symbol_id, "Unknown")
+        print(f"Proceeding with subscription and history fetch for '{symbol_name}' (ID: {symbol_id}).")
+
+        # Ensure ctidTraderAccountId is available
+        if self.ctid_trader_account_id is None:
+            print(f"Error: ctidTraderAccountId not set. Cannot subscribe/fetch for {symbol_name}.")
+            self._last_error = "ctidTraderAccountId not available for operations."
+            return
+
+        # Fetch historical data if we don't have it
+        if symbol_name not in self.ohlc_history or self.ohlc_history.get(symbol_name, {}).get('1m', pd.DataFrame()).empty:
+            print(f"Fetching initial historical 1m trendbars for {symbol_name} (ID: {symbol_id}).")
+            self._send_get_trendbars_request(
+                symbol_id=symbol_id,
+                period=ProtoOATrendbarPeriod.M1,
+                count=self.max_ohlc_history_len
+            )
+
+        # Subscribe to live spots if not already subscribed
+        if symbol_id not in self.subscribed_spot_symbol_ids:
+            print(f"Subscribing to spots for {symbol_name} (ID: {symbol_id}).")
+            self._send_subscribe_spots_request(self.ctid_trader_account_id, [symbol_id])
+            self.subscribed_spot_symbol_ids.add(symbol_id)
 
     def _handle_account_auth_response(self, response: ProtoOAAccountAuthRes) -> None:
         print(f"Received ProtoOAAccountAuthRes: {response}")
@@ -1608,29 +1608,14 @@ class Trader:
             print(f"Error: Cannot handle selection. Symbol '{symbol_name}' not found in map.")
             return
 
-        # 1. Subscribe to spot prices if not already subscribed
-        if symbol_id not in self.subscribed_spot_symbol_ids:
-            print(f"New symbol selected: '{symbol_name}' (ID: {symbol_id}). Subscribing...")
-            if self.ctid_trader_account_id:
-                self._send_subscribe_spots_request(self.ctid_trader_account_id, [symbol_id])
-                self.subscribed_spot_symbol_ids.add(symbol_id)
-            else:
-                print("Error: Cannot subscribe to symbol, no ctidTraderAccountId.")
-                return # Cannot proceed without account ID
-
-        # 2. Fetch full symbol details if we don't have them
+        # 1. Fetch full symbol details if we don't have them
         if symbol_id not in self.symbol_details_map:
-            print(f"Fetching details for '{symbol_name}'...")
+            print(f"Details for '{symbol_name}' not found locally, requesting from server.")
             self._send_get_symbol_details_request([symbol_id])
-
-        # 3. Fetch historical data if we don't have it for the main timeframe
-        if symbol_name not in self.ohlc_history or self.ohlc_history.get(symbol_name, {}).get('1m', pd.DataFrame()).empty:
-            print(f"Fetching 1m historical data for '{symbol_name}'...")
-            self._send_get_trendbars_request(
-                symbol_id=symbol_id,
-                period=ProtoOATrendbarPeriod.M1,
-                count=self.max_ohlc_history_len
-            )
+        else:
+            # 2. If details are already here, proceed to subscribe and fetch history
+            print(f"Details for '{symbol_name}' found locally. Checking subscriptions and history.")
+            self._subscribe_and_fetch_history_for_symbol(symbol_id)
 
     def close_all_positions(self) -> None:
         """Closes all currently tracked open positions."""
