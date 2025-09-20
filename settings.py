@@ -31,8 +31,7 @@ class GeneralSettings:
     min_bars_for_trading: int = 50
     risk_percentage: float = 1.0
     batch_profit_target: float = 10.0
-    trading_start_hour: int = 0
-    trading_end_hour: int = 24
+    # Add other general app settings here if any
 
 @dataclass
 class AISettings:
@@ -94,9 +93,7 @@ class Settings:
             chart_update_interval_ms=general_cfg.get("chart_update_interval_ms", 500),
             min_bars_for_trading=general_cfg.get("min_bars_for_trading", 50),
             risk_percentage=general_cfg.get("risk_percentage", 1.0),
-            batch_profit_target=general_cfg.get("batch_profit_target", 10.0),
-            trading_start_hour=general_cfg.get("trading_start_hour", 0),
-            trading_end_hour=general_cfg.get("trading_end_hour", 24)
+            batch_profit_target=general_cfg.get("batch_profit_target", 10.0)
         )
 
         ai_settings = AISettings(
@@ -137,8 +134,6 @@ class Settings:
                 "min_bars_for_trading": self.general.min_bars_for_trading,
                 "risk_percentage": self.general.risk_percentage,
                 "batch_profit_target": self.general.batch_profit_target,
-                "trading_start_hour": self.general.trading_start_hour,
-                "trading_end_hour": self.general.trading_end_hour,
             },
             "ai": {
                 "use_ai_overseer": self.ai.use_ai_overseer,

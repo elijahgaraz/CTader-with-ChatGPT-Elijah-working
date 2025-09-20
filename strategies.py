@@ -49,6 +49,8 @@ class SafeStrategy(Strategy):
         target_mult: float = 0.5,
         buffer_mult: float = 0.05,  # changed from 0.2 to allow more trades; adjust as needed
         volume_mult: float = 1.5,
+        session_start: time = time(6, 0),
+        session_end: time = time(18, 0),
         session_tz: str = "Europe/London",
     ):
         # Trend & volatility settings
@@ -61,10 +63,8 @@ class SafeStrategy(Strategy):
         self.volume_mult = volume_mult
 
         # Trading session window
-        start_h = self.settings.general.trading_start_hour
-        end_h = self.settings.general.trading_end_hour
-        self.session_start = time(start_h, 0)
-        self.session_end = time(end_h, 0) if end_h < 24 else time(23, 59, 59)
+        self.session_start = session_start
+        self.session_end = session_end
         self.session_zone = ZoneInfo(session_tz)
 
         # Trailing stop state
@@ -186,11 +186,19 @@ class SafeStrategy(Strategy):
         close = df['close']
         vol = df.get('volume', pd.Series(dtype=float))
 
-        # Indicators
+        # --- Indicator Calculation (calculate once) ---
+        price = close.iloc[-1]
         ema = calculate_ema(df, self.ema_period).iloc[-1]
         atr = calculate_atr(df, self.atr_period).iloc[-1]
-        price = close.iloc[-1]
         avg_vol = None if vol.empty else vol.rolling(self.atr_period).mean().iloc[-1]
+
+        # Indicators for AI payload (calculated regardless of AI use to keep logic simple)
+        fast_ema = calculate_ema(df, 9).iloc[-1]
+        slow_ema = calculate_ema(df, 21).iloc[-1]
+        rsi = calculate_rsi(df, 14).iloc[-1]
+        adx_df = calculate_adx(df, 14)
+        adx = adx_df[f'ADX_14'].iloc[-1] if not adx_df.empty else 0
+        # --- End of Indicator Calculation ---
 
         # Buffer zone filter
         buffer = atr * self.buffer_mult
@@ -232,13 +240,8 @@ class SafeStrategy(Strategy):
 
         # --- AI Overseer Integration ---
         if trader.settings.ai.use_ai_overseer and action in ('buy', 'sell'):
-            # 1) Calculate all indicators for the AI payload
+            # 1) Get indicators for the AI payload (already calculated)
             intent = 'long' if action == 'buy' else 'short'
-            fast_ema = calculate_ema(df, 9).iloc[-1]
-            slow_ema = calculate_ema(df, 21).iloc[-1]
-            rsi = calculate_rsi(df, 14).iloc[-1]
-            adx_df = calculate_adx(df, 14)
-            adx = adx_df[f'ADX_14'].iloc[-1] if not adx_df.empty else 0
 
             # 2) Construct payload
             features = {

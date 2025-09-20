@@ -26,12 +26,7 @@ class MainApplication(ThemedTk):
 
         self.settings = settings
         self._ui_queue = queue.Queue()
-        self.trader = Trader(
-            self.settings,
-            on_account_update=self._handle_account_update,
-            on_positions_update=self._handle_positions_update,
-            on_log_message=self._handle_log_message
-        )
+        self.trader = Trader(self.settings, on_account_update=self._handle_account_update)
         self.after(100, self._process_ui_queue)
 
 
@@ -41,62 +36,19 @@ class MainApplication(ThemedTk):
         container.columnconfigure(0, weight=1)
 
         self.pages = {}
-        for Page in (SettingsPage, TradingPage, PerformancePage):
-            page_name = Page.__name__
-            if Page == SettingsPage:
-                page = Page(container, self)
-                self.pages[page_name] = page
-                page.grid(row=0, column=0, sticky="nsew")
-            elif Page in (TradingPage, PerformancePage):
-                # Will be placed in notebook later
-                pass
-
-        # Setup Notebook for Trading and Performance pages
-        self.notebook = ttk.Notebook(container)
-        self.trading_page = TradingPage(self.notebook, self)
-        self.performance_page = PerformancePage(self.notebook, self)
-        self.notebook.add(self.trading_page, text='Trading')
-        self.notebook.add(self.performance_page, text='Performance')
-
-        self.pages['TradingPage'] = self.trading_page
-        self.pages['PerformancePage'] = self.performance_page
-
-        self.show_page('SettingsPage')
-
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-    def on_closing(self):
-        """Handle the window closing event."""
-        print("Closing application...")
-        self.trader.disconnect()
-        self.destroy()
-
-    def show_page(self, page_name: str):
-        if page_name in ['TradingPage', 'PerformancePage']:
-            # Place notebook on grid and raise it
-            self.notebook.grid(row=0, column=0, sticky="nsew")
-            self.notebook.tkraise()
-            if page_name == 'TradingPage':
-                self.notebook.select(self.trading_page)
-            else:
-                self.notebook.select(self.performance_page)
-        elif page_name == 'SettingsPage':
-            # Place settings page on grid and raise it
-            page = self.pages['SettingsPage']
+        for Page in (SettingsPage, TradingPage):
+            page = Page(container, self)
             page.grid(row=0, column=0, sticky="nsew")
-            page.tkraise()
+            self.pages[Page] = page
+
+        self.show_page(SettingsPage)
+
+    def show_page(self, page_cls):
+        self.pages[page_cls].tkraise()
 
     def _handle_account_update(self, summary: Dict[str, Any]):
         """Callback for the Trader to push account updates."""
         self._ui_queue.put(("account_update", summary))
-
-    def _handle_positions_update(self, positions: Dict[int, Any]):
-        """Callback for the Trader to push position updates."""
-        self._ui_queue.put(("positions_update", positions))
-
-    def _handle_log_message(self, message: str):
-        """Callback for the Trader to push log messages."""
-        self._ui_queue.put(("_log", message))
 
     def _process_ui_queue(self):
         """Process items from the UI queue."""
@@ -105,7 +57,7 @@ class MainApplication(ThemedTk):
                 msg_type, data = self._ui_queue.get_nowait()
 
                 # Find the target page
-                trading_page = self.pages['TradingPage']
+                trading_page = self.pages[TradingPage]
 
                 if msg_type == "account_update":
                     for page in self.pages.values():
@@ -114,9 +66,7 @@ class MainApplication(ThemedTk):
                                 account_id=data.get("account_id", "–"),
                                 balance=data.get("balance"),
                                 equity=data.get("equity"),
-                                used_margin=data.get("used_margin"),
-                                free_margin=data.get("free_margin"),
-                                margin_level=data.get("margin_level")
+                                margin=data.get("margin")
                             )
                 elif msg_type == "show_ai_advice":
                     trading_page._show_ai_advice(data)
@@ -124,8 +74,6 @@ class MainApplication(ThemedTk):
                     trading_page._show_ai_error(data)
                 elif msg_type == "re-enable_ai_button":
                     trading_page.ai_button.config(state="normal")
-                elif msg_type == "positions_update":
-                    self.performance_page.update_positions(data)
                 elif msg_type == "_log":
                     trading_page._log(data)
                 elif msg_type == "_execute_trade":
@@ -181,48 +129,25 @@ class SettingsPage(ttk.Frame):
         ttk.Label(acct, text="Equity:").grid(row=2, column=0, sticky="w", padx=(0,5))
         ttk.Label(acct, textvariable=self.equity_var).grid(row=2, column=1, sticky="w")
 
-        self.used_margin_var = tk.StringVar(value="–")
-        ttk.Label(acct, text="Used Margin:").grid(row=3, column=0, sticky="w", padx=(0,5))
-        ttk.Label(acct, textvariable=self.used_margin_var).grid(row=3, column=1, sticky="w")
-
-        self.free_margin_var = tk.StringVar(value="–")
-        ttk.Label(acct, text="Free Margin:").grid(row=4, column=0, sticky="w", padx=(0,5))
-        ttk.Label(acct, textvariable=self.free_margin_var).grid(row=4, column=1, sticky="w")
-
-        self.margin_level_var = tk.StringVar(value="–")
-        ttk.Label(acct, text="Margin Level:").grid(row=5, column=0, sticky="w", padx=(0,5))
-        ttk.Label(acct, textvariable=self.margin_level_var).grid(row=5, column=1, sticky="w")
-
-        # --- Trading Hours ---
-        hours_frame = ttk.Labelframe(self, text="Trading Hours (Safe Strategy)", padding=10)
-        hours_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        hours_frame.columnconfigure(1, weight=1)
-
-        self.start_hour_var = tk.StringVar(value=str(self.controller.settings.general.trading_start_hour))
-        ttk.Label(hours_frame, text="Start Hour (0-23):").grid(row=0, column=0, sticky="w", padx=(0,5))
-        ttk.Entry(hours_frame, textvariable=self.start_hour_var).grid(row=0, column=1, sticky="ew")
-
-        self.end_hour_var = tk.StringVar(value=str(self.controller.settings.general.trading_end_hour))
-        ttk.Label(hours_frame, text="End Hour (1-24):").grid(row=1, column=0, sticky="w", padx=(0,5))
-        ttk.Entry(hours_frame, textvariable=self.end_hour_var).grid(row=1, column=1, sticky="ew")
+        self.margin_var = tk.StringVar(value="–")
+        ttk.Label(acct, text="Margin:").grid(row=3, column=0, sticky="w", padx=(0,5))
+        ttk.Label(acct, textvariable=self.margin_var).grid(row=3, column=1, sticky="w")
 
         # --- Actions & Status ---
         actions = ttk.Frame(self)
-        actions.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10,0))
+        actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10,0))
         ttk.Button(actions, text="Save Settings", command=self.save_settings).pack(side="left", padx=5)
         ttk.Button(actions, text="Connect", command=self.attempt_connection).pack(side="left", padx=5)
 
         self.status = ttk.Label(self, text="Disconnected", anchor="center")
-        self.status.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(5,0))
+        self.status.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(5,0))
 
-    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, used_margin: float | None, free_margin: float | None, margin_level: float | None):
+    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, margin: float | None):
         """Public method to update account info StringVars."""
         self.account_id_var.set(str(account_id) if account_id is not None else "–")
         self.balance_var.set(f"{balance:.2f}" if balance is not None else "–")
         self.equity_var.set(f"{equity:.2f}" if equity is not None else "–")
-        self.used_margin_var.set(f"{used_margin:.2f}" if used_margin is not None else "–")
-        self.free_margin_var.set(f"{free_margin:.2f}" if free_margin is not None else "–")
-        self.margin_level_var.set(f"{margin_level:.2f}%" if margin_level is not None else "–")
+        self.margin_var.set(f"{margin:.2f}" if margin is not None else "–")
 
     def save_settings(self):
         self.controller.settings.openapi.client_id = self.client_id_var.get()
@@ -232,14 +157,6 @@ class SettingsPage(ttk.Frame):
             self.controller.settings.openapi.default_ctid_trader_account_id = int(self.account_id_entry_var.get())
         except (ValueError, TypeError):
             self.controller.settings.openapi.default_ctid_trader_account_id = None
-
-        try:
-            self.controller.settings.general.trading_start_hour = int(self.start_hour_var.get())
-            self.controller.settings.general.trading_end_hour = int(self.end_hour_var.get())
-        except (ValueError, TypeError):
-            messagebox.showerror("Invalid Input", "Trading hours must be integers.")
-            return
-
         self.controller.settings.save()
         messagebox.showinfo("Settings Saved", "Your settings have been saved successfully.")
 
@@ -315,30 +232,22 @@ class SettingsPage(ttk.Frame):
         self.equity_var.set(f"{equity_val:.2f}" if equity_val is not None else "Can't retrieve equity")
         
         # Margin
-        used_margin_val = summary.get("used_margin")
-        free_margin_val = summary.get("free_margin")
-        margin_level_val = summary.get("margin_level")
-        self.used_margin_var.set(f"{used_margin_val:.2f}" if used_margin_val is not None else "–")
-        self.free_margin_var.set(f"{free_margin_val:.2f}" if free_margin_val is not None else "–")
-        self.margin_level_var.set(f"{margin_level_val:.2f}%" if margin_level_val is not None else "–")
+        margin_val = summary.get("margin")
+        self.margin_var.set(f"{margin_val:.2f}" if margin_val is not None else "–")
 
         # Prepare display strings for messagebox, handling None gracefully
         display_account_id = str(account_id_val) if account_id_val is not None else "N/A"
         display_balance = f"{balance_val:.2f}" if balance_val is not None else "N/A"
         display_equity = f"{equity_val:.2f}" if equity_val is not None else "N/A"
-        display_used_margin = f"{used_margin_val:.2f}" if used_margin_val is not None else "N/A"
-        display_free_margin = f"{free_margin_val:.2f}" if free_margin_val is not None else "N/A"
-        display_margin_level = f"{margin_level_val:.2f}%" if margin_level_val is not None else "N/A"
+        display_margin = f"{margin_val:.2f}" if margin_val is not None else "N/A"
 
         messagebox.showinfo(
             "Connected",
             f"Successfully connected!\n\n"
             f"Account ID: {display_account_id}\n"
-            f"Balance: {display_balance}\n"
-            f"Equity: {display_equity}\n"
-            f"Used Margin: {display_used_margin}\n"
-            f"Free Margin: {display_free_margin}\n"
-            f"Margin Level: {display_margin_level}"
+            f"Balance: {display_balance}\n" # Already handles None correctly for display_balance
+            f"Equity: {display_equity}\n"   # Already handles None correctly for display_equity
+            f"Margin: {display_margin}"     # Already handles None correctly for display_margin
         )
         self.status.config(text="Connected ✅", foreground="green")
 
@@ -346,7 +255,7 @@ class SettingsPage(ttk.Frame):
         # No need to manually update it here.
 
         available_symbols = t.get_available_symbol_names()
-        trading_page = self.controller.pages['TradingPage']
+        trading_page = self.controller.pages[TradingPage]
         if available_symbols: # Ensure there are symbols before trying to populate
             trading_page.populate_symbols_dropdown(available_symbols)
         else:
@@ -355,12 +264,12 @@ class SettingsPage(ttk.Frame):
             self._log_to_trading_page("Warning: No symbols received from the trader to populate dropdown.")
 
 
-        self.controller.show_page('TradingPage')
+        self.controller.show_page(TradingPage)
 
     def _log_to_trading_page(self, message: str):
         """Helper to log messages to the TradingPage's output log if available."""
-        if 'TradingPage' in self.controller.pages:
-            trading_page = self.controller.pages['TradingPage']
+        if TradingPage in self.controller.pages:
+            trading_page = self.controller.pages[TradingPage]
             if hasattr(trading_page, '_log'):
                 trading_page._log(f"[SettingsPage] {message}") # Prefix to identify source
 
@@ -369,38 +278,9 @@ class TradingPage(ttk.Frame):
     # COMMON_PAIRS removed, will be populated dynamically
 
     def __init__(self, parent, controller):
-        super().__init__(parent)
+        super().__init__(parent, padding=10)
         self.controller = controller
         self.trader = controller.trader
-
-        # --- Create a scrollable frame ---
-        # Main frame holds canvas and scrollbar
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        canvas = tk.Canvas(self)
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, padding=10)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-
-        def on_canvas_configure(event):
-            canvas.itemconfig(canvas_window, width=event.width)
-
-        canvas.bind("<Configure>", on_canvas_configure)
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.grid(row=0, column=0, sticky="nsew")
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        # --- End of scrollable frame setup ---
-
-        # Now, place all widgets into 'scrollable_frame' instead of 'self'
-        content_frame = scrollable_frame
 
         self.is_scalping = False
         self.scalping_thread = None
@@ -410,20 +290,21 @@ class TradingPage(ttk.Frame):
         self.balance_var_tp = tk.StringVar(value="–")
         self.equity_var_tp = tk.StringVar(value="–")
 
-        # configure grid for the content_frame
-        for r in range(14): # Set non-expanding rows
-            content_frame.rowconfigure(r, weight=0)
-        content_frame.rowconfigure(14, weight=1) # Make the output log row expandable
-        content_frame.columnconfigure(1, weight=1)
+        # configure grid
+        # Adjusted row count for new account info section AND data readiness label
+        for r in range(13): # Increased range for new row + data readiness
+            self.rowconfigure(r, weight=0)
+        self.rowconfigure(13, weight=1) # Adjusted log row index
+        self.columnconfigure(1, weight=1)
 
 
         # ← Settings button
-        ttk.Button(content_frame, text="← Settings", command=lambda: controller.show_page('SettingsPage')).grid(
+        ttk.Button(self, text="← Settings", command=lambda: controller.show_page(SettingsPage)).grid(
             row=0, column=0, columnspan=2, pady=(0,10), sticky="w" # columnspan to align with other full-width elements
         )
 
         # Account Info Display
-        acc_info_frame = ttk.Labelframe(content_frame, text="Account Information", padding=5)
+        acc_info_frame = ttk.Labelframe(self, text="Account Information", padding=5)
         acc_info_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0,10))
         acc_info_frame.columnconfigure(1, weight=1)
 
@@ -431,85 +312,77 @@ class TradingPage(ttk.Frame):
         ttk.Label(acc_info_frame, textvariable=self.account_id_var_tp).grid(row=0, column=1, sticky="w")
 
         ttk.Label(acc_info_frame, text="Balance:").grid(row=1, column=0, sticky="w", padx=(0,5))
-        balance_frame = ttk.Frame(acc_info_frame)
-        balance_frame.grid(row=1, column=1, sticky="ew")
-        ttk.Label(balance_frame, textvariable=self.balance_var_tp).pack(side="left")
-        ttk.Button(balance_frame, text="↻", width=2, command=self.refresh_balance).pack(side="left", padx=5)
-
+        ttk.Label(acc_info_frame, textvariable=self.balance_var_tp).grid(row=1, column=1, sticky="w")
 
         ttk.Label(acc_info_frame, text="Equity:").grid(row=2, column=0, sticky="w", padx=(0,5))
         ttk.Label(acc_info_frame, textvariable=self.equity_var_tp).grid(row=2, column=1, sticky="w")
 
-        self.used_margin_var_tp = tk.StringVar(value="–")
-        ttk.Label(acc_info_frame, text="Used Margin:").grid(row=3, column=0, sticky="w", padx=(0,5))
-        ttk.Label(acc_info_frame, textvariable=self.used_margin_var_tp).grid(row=3, column=1, sticky="w")
-
 
         # Symbol dropdown
         # Row indices are +1 from original due to Account Info section added at row=1
-        ttk.Label(content_frame, text="Symbol:").grid(row=2, column=0, sticky="w", padx=(0,5))
+        ttk.Label(self, text="Symbol:").grid(row=2, column=0, sticky="w", padx=(0,5))
         self.symbol_var = tk.StringVar(value="Loading symbols...") # Initial placeholder
-        self.cb_symbol = ttk.Combobox(content_frame, textvariable=self.symbol_var,
+        self.cb_symbol = ttk.Combobox(self, textvariable=self.symbol_var,
                                  values=[], state="readonly") # Initially empty
         self.cb_symbol.grid(row=2, column=1, sticky="ew") # Corrected from row=1
-        self.cb_symbol.bind("<<ComboboxSelected>>", self._on_symbol_select)
+        self.cb_symbol.bind("<<ComboboxSelected>>", lambda e: self.refresh_price())
 
         # Price display + refresh
-        ttk.Label(content_frame, text="Price:").grid(row=3, column=0, sticky="w", padx=(0,5)) # Was row=2
+        ttk.Label(self, text="Price:").grid(row=3, column=0, sticky="w", padx=(0,5)) # Was row=2
         self.price_var = tk.StringVar(value="–")
-        pf = ttk.Frame(content_frame)
+        pf = ttk.Frame(self)
         pf.grid(row=3, column=1, sticky="ew") # Was row=2
         ttk.Label(pf, textvariable=self.price_var,
                   font=("TkDefaultFont", 12, "bold")).pack(side="left")
         ttk.Button(pf, text="↻", width=2, command=self.refresh_price).pack(side="right")
 
         # Profit target
-        ttk.Label(content_frame, text="Profit Target (pips):").grid(row=4, column=0, sticky="w", padx=(0,5)) # Was row=3
+        ttk.Label(self, text="Profit Target (pips):").grid(row=4, column=0, sticky="w", padx=(0,5)) # Was row=3
         self.tp_var = tk.DoubleVar(value=10.0)
-        ttk.Entry(content_frame, textvariable=self.tp_var).grid(row=4, column=1, sticky="ew") # Was row=3
+        ttk.Entry(self, textvariable=self.tp_var).grid(row=4, column=1, sticky="ew") # Was row=3
 
         # Order size
-        ttk.Label(content_frame, text="Order Size (lots):").grid(row=5, column=0, sticky="w", padx=(0,5)) # Was row=4
+        ttk.Label(self, text="Order Size (lots):").grid(row=5, column=0, sticky="w", padx=(0,5)) # Was row=4
         self.size_var = tk.DoubleVar(value=1.0)
-        ttk.Entry(content_frame, textvariable=self.size_var).grid(row=5, column=1, sticky="ew") # Was row=4
+        ttk.Entry(self, textvariable=self.size_var).grid(row=5, column=1, sticky="ew") # Was row=4
 
         # Stop-loss
-        ttk.Label(content_frame, text="Stop Loss (pips):").grid(row=6, column=0, sticky="w", padx=(0,5)) # Was row=5
+        ttk.Label(self, text="Stop Loss (pips):").grid(row=6, column=0, sticky="w", padx=(0,5)) # Was row=5
         self.sl_var = tk.DoubleVar(value=5.0)
-        ttk.Entry(content_frame, textvariable=self.sl_var).grid(row=6, column=1, sticky="ew") # Was row=5
+        ttk.Entry(self, textvariable=self.sl_var).grid(row=6, column=1, sticky="ew") # Was row=5
 
         # Batch profit target
-        ttk.Label(content_frame, text="Batch Profit Target:").grid(row=7, column=0, sticky="w", padx=(0,5))
+        ttk.Label(self, text="Batch Profit Target:").grid(row=7, column=0, sticky="w", padx=(0,5))
         self.batch_profit_var = tk.DoubleVar(value=self.controller.settings.general.batch_profit_target)
-        ttk.Entry(content_frame, textvariable=self.batch_profit_var).grid(row=7, column=1, sticky="ew")
+        ttk.Entry(self, textvariable=self.batch_profit_var).grid(row=7, column=1, sticky="ew")
 
         # Strategy selector
-        ttk.Label(content_frame, text="Strategy:").grid(row=8, column=0, sticky="w", padx=(0,5))
+        ttk.Label(self, text="Strategy:").grid(row=8, column=0, sticky="w", padx=(0,5))
         self.strategy_var = tk.StringVar(value="Safe")
         strategy_names = ["Safe", "Moderate", "Aggressive", "Momentum", "Mean Reversion"]
-        cb_strat = ttk.Combobox(content_frame, textvariable=self.strategy_var, values=strategy_names, state="readonly")
+        cb_strat = ttk.Combobox(self, textvariable=self.strategy_var, values=strategy_names, state="readonly")
         cb_strat.grid(row=8, column=1, sticky="ew")
         cb_strat.bind("<<ComboboxSelected>>", lambda e: self._update_data_readiness_display(execute_now=True))
 
 
         # Data Readiness Display
-        ttk.Label(content_frame, text="Data Readiness:").grid(row=9, column=0, sticky="w", padx=(0,5), pady=(10,0))
+        ttk.Label(self, text="Data Readiness:").grid(row=9, column=0, sticky="w", padx=(0,5), pady=(10,0))
         self.data_readiness_var = tk.StringVar(value="Initializing...")
-        self.data_readiness_label = ttk.Label(content_frame, textvariable=self.data_readiness_var)
+        self.data_readiness_label = ttk.Label(self, textvariable=self.data_readiness_var)
         self.data_readiness_label.grid(row=9, column=1, sticky="ew", pady=(10,0))
 
         # ChatGPT Analysis Button
-        self.ai_button = ttk.Button(content_frame, text="ChatGPT Analysis", command=self.run_chatgpt_analysis)
+        self.ai_button = ttk.Button(self, text="ChatGPT Analysis", command=self.run_chatgpt_analysis)
         self.ai_button.grid(row=10, column=0, columnspan=2, pady=(10, 0))
 
         # Start/Stop Scalping buttons
-        self.start_button = ttk.Button(content_frame, text="Begin Scalping", command=self.start_scalping, state="normal") # Initially disabled
+        self.start_button = ttk.Button(self, text="Begin Scalping", command=self.start_scalping, state="normal") # Initially disabled
         self.start_button.grid(row=11, column=0, columnspan=2, pady=(10,0))
-        self.stop_button  = ttk.Button(content_frame, text="Stop Scalping", command=self.stop_scalping, state="disabled")
+        self.stop_button  = ttk.Button(self, text="Stop Scalping", command=self.stop_scalping, state="disabled")
         self.stop_button.grid(row=12, column=0, columnspan=2, pady=(5,0))
 
         # Session Stats frame
-        stats = ttk.Labelframe(content_frame, text="Session Stats", padding=10)
+        stats = ttk.Labelframe(self, text="Session Stats", padding=10)
         stats.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(10,0))
         stats.columnconfigure(1, weight=1)
 
@@ -525,9 +398,9 @@ class TradingPage(ttk.Frame):
         ttk.Label(stats, textvariable=self.win_rate_var).grid(row=2, column=1, sticky="w")
 
         # Output log
-        self.output = tk.Text(content_frame, height=8, wrap="word", state="disabled")
+        self.output = tk.Text(self, height=8, wrap="word", state="disabled")
         self.output.grid(row=14, column=0, columnspan=2, sticky="nsew", pady=(10,0))
-        sb = ttk.Scrollbar(content_frame, command=self.output.yview)
+        sb = ttk.Scrollbar(self, command=self.output.yview)
         sb.grid(row=14, column=2, sticky="ns")
         self.output.config(yscrollcommand=sb.set)
 
@@ -578,8 +451,7 @@ class TradingPage(ttk.Frame):
             return
 
         required_bars_map = strategy_instance.get_required_bars()
-        selected_symbol = self.symbol_var.get()
-        available_bars_map = self.trader.get_ohlc_bar_counts(selected_symbol)
+        available_bars_map = self.trader.get_ohlc_bar_counts()
 
         status_messages = []
         all_ready = True
@@ -638,34 +510,17 @@ class TradingPage(ttk.Frame):
         # Refresh price for the newly set/defaulted symbol, if it's a valid symbol string
         current_selection = self.symbol_var.get()
         if current_selection not in ["No symbols available", "Loading symbols...", ""]:
-            self.trader.handle_symbol_selection(current_selection)
             self.refresh_price()
         else:
             self.price_var.set("–") # Ensure price is reset if no valid symbol selected
 
 
-    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, used_margin: float | None, free_margin: float | None, margin_level: float | None):
+    def update_account_info(self, account_id: str, balance: float | None, equity: float | None, margin: float | None):
         """Public method to update account info StringVars from the controller."""
         self.account_id_var_tp.set(str(account_id) if account_id is not None else "–")
         self.balance_var_tp.set(f"{balance:.2f}" if balance is not None else "–")
         self.equity_var_tp.set(f"{equity:.2f}" if equity is not None else "–")
-        self.used_margin_var_tp.set(f"{used_margin:.2f}" if used_margin is not None else "–")
-
-    def _on_symbol_select(self, event=None):
-        """Handles the event when a new symbol is selected from the dropdown."""
-        selected_symbol = self.symbol_var.get()
-        if selected_symbol and selected_symbol not in ["Loading symbols...", "No symbols available"]:
-            self._log(f"Symbol selected: {selected_symbol}")
-            self.trader.handle_symbol_selection(selected_symbol)
-            self.refresh_price()
-
-    def refresh_balance(self):
-        """Requests the trader to fetch the latest account summary."""
-        self._log("Refreshing account balance...")
-        try:
-            self.trader.request_account_update()
-        except Exception as e:
-            self._log(f"Error refreshing balance: {e}")
+        # Note: TradingPage does not display margin, but the method signature is kept consistent.
 
     def refresh_price(self):
         symbol = self.symbol_var.get().replace("/", "")
@@ -695,10 +550,7 @@ class TradingPage(ttk.Frame):
             # 1. Gather data
             symbol = self.symbol_var.get().replace("/", "")
             price = self.trader.get_market_price(symbol)
-
-            # Get OHLC data for the selected symbol
-            symbol_ohlc = self.trader.ohlc_history.get(symbol, {})
-            ohlc_1m_df = symbol_ohlc.get('1m', pd.DataFrame())
+            ohlc_1m_df = self.trader.ohlc_history.get('1m', pd.DataFrame())
 
             if price is None or ohlc_1m_df.empty:
                 self.controller._ui_queue.put(("show_ai_error", ("Could not perform analysis: Market data is missing.",)))
@@ -763,43 +615,53 @@ class TradingPage(ttk.Frame):
 
 
     def start_scalping(self):
+        """
+        Creates the selected strategy object once and starts the scalping
+        loop in a separate thread.
+        """
         self._log("start_scalping() called")
 
-        sel = self.strategy_var.get()
-        if sel == "Safe":
+        # Create the strategy object ONCE, before the loop starts.
+        strategy_name = self.strategy_var.get()
+        strategy = None
+        if strategy_name == "Safe":
             strategy = SafeStrategy(self.controller.settings)
-        elif sel == "Moderate":
+        elif strategy_name == "Moderate":
             strategy = ModerateStrategy(self.controller.settings)
-        elif sel == "Aggressive":
+        elif strategy_name == "Aggressive":
             strategy = AggressiveStrategy(self.controller.settings)
-        elif sel == "Mean Reversion":
+        elif strategy_name == "Mean Reversion":
             strategy = MeanReversionStrategy(self.controller.settings)
-        else:
+        else: # Momentum
             strategy = MomentumStrategy(self.controller.settings)
+
+        if not strategy:
+            messagebox.showerror("Error", "Could not create the selected strategy.")
+            return
 
         self._log(f"Strategy created: {strategy.NAME}")
 
+        # Gather trade parameters
         symbol = self.symbol_var.get().replace("/", "")
-        tp     = self.tp_var.get()
-        sl     = self.sl_var.get()
-        size   = self.size_var.get()
+        tp = self.tp_var.get()
+        sl = self.sl_var.get()
+        size = self.size_var.get()
+        batch_target = self.batch_profit_var.get()
 
+        # Reset session stats
         summary = self.trader.get_account_summary()
         self.batch_start_equity = summary.get("equity", 0.0) or 0.0
         self.current_batch_trades = 0
 
-        batch_target = self.batch_profit_var.get()
-
+        # Update UI and start the thread
         self._toggle_scalping_ui(True)
-
-        # Start real trading loop
         self.scalping_thread = threading.Thread(
             target=self._scalp_loop,
+            # Pass the instantiated strategy object to the loop
             args=(symbol, tp, sl, size, strategy, batch_target),
             daemon=True
         )
         self.scalping_thread.start()
-
         messagebox.showinfo("Scalping Started", f"Live scalping thread started for {symbol}")
 
     def stop_scalping(self):
@@ -817,54 +679,9 @@ class TradingPage(ttk.Frame):
         self.start_button.config(state=state_start)
         self.stop_button.config(state=state_stop)
 
-    # gui.py
-
-    def start_scalping(self):
-        self._log("start_scalping() called")
-
-        # GET THE STRATEGY NAME, NOT THE OBJECT
-        strategy_name = self.strategy_var.get() 
-        self._log(f"Selected Strategy: {strategy_name}")
-
-        symbol = self.symbol_var.get().replace("/", "")
-        tp     = self.tp_var.get()
-        sl     = self.sl_var.get()
-        size   = self.size_var.get()
-
-        summary = self.trader.get_account_summary()
-        self.batch_start_equity = summary.get("equity", 0.0) or 0.0
-        self.current_batch_trades = 0
-
-        batch_target = self.batch_profit_var.get()
-
-        self._toggle_scalping_ui(True)
-
-        # Start real trading loop
-        self.scalping_thread = threading.Thread(
-            target=self._scalp_loop,
-            # PASS THE NAME OF THE STRATEGY, NOT THE OBJECT ITSELF
-            args=(symbol, tp, sl, size, strategy_name, batch_target),
-            daemon=True
-        )
-        self.scalping_thread.start()
-
-        messagebox.showinfo("Scalping Started", f"Live scalping thread started for {symbol}")
-
-    def _scalp_loop(self, symbol: str, tp: float, sl: float, size: float, strategy_name: str, batch_target: float):
+    def _scalp_loop(self, symbol: str, tp: float, sl: float, size: float, strategy, batch_target: float):
         print("SCALP LOOP STARTED")
         while self.is_scalping:
-            # THIS IS THE KEY CHANGE: CREATE A NEW STRATEGY OBJECT IN EVERY LOOP
-            if strategy_name == "Safe":
-                strategy = SafeStrategy(self.controller.settings)
-            elif strategy_name == "Moderate":
-                strategy = ModerateStrategy(self.controller.settings)
-            elif strategy_name == "Aggressive":
-                strategy = AggressiveStrategy(self.controller.settings)
-            elif strategy_name == "Mean Reversion":
-                strategy = MeanReversionStrategy(self.controller.settings)
-            else: # Momentum
-                strategy = MomentumStrategy(self.controller.settings)
-
             if self.current_batch_trades >= self.batch_size:
                 summary = self.trader.get_account_summary()
                 equity = summary.get("equity", 0.0) or 0.0
@@ -883,10 +700,8 @@ class TradingPage(ttk.Frame):
             current_tick_price = self.trader.get_market_price(symbol)
             print(f"Tick price: {current_tick_price}")
 
-            # Fetch OHLC data for the correct symbol
-            symbol_ohlc_data = self.trader.ohlc_history.get(symbol, {})
-            ohlc_1m_df = symbol_ohlc_data.get('1m', pd.DataFrame())
-            ohlc_15s_df = symbol_ohlc_data.get('15s', pd.DataFrame())
+            # Fetch OHLC data. Data is already prepared in trading.py
+            ohlc_1m_df = self.trader.ohlc_history.get('1m', pd.DataFrame())
             
             # BUG FIX: Removed redundant and buggy dataframe processing.
             # The dataframe from trader.ohlc_history is already indexed by timestamp.
@@ -898,7 +713,7 @@ class TradingPage(ttk.Frame):
                 symbol,
                 {
                     'ohlc_1m': ohlc_1m_df,
-                    'ohlc_15s': ohlc_15s_df,
+                    'ohlc_15s': self.trader.ohlc_history.get('15s', pd.DataFrame()),
                     'current_equity': self.trader.equity,
                     'pip_position': None,
                     'current_price_tick': current_tick_price
@@ -983,69 +798,6 @@ class TradingPage(ttk.Frame):
         self.output.insert("end", f"[{ts}] {msg}\n")
         self.output.see("end")
         self.output.configure(state="disabled")
-
-
-class PerformancePage(ttk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, padding=10)
-        self.controller = controller
-        self.trader = controller.trader
-
-        # Define columns, adding one for the close button
-        columns = ("pos_id", "symbol", "side", "lots", "open_price", "pnl", "close")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings")
-
-        # Define headings
-        self.tree.heading("pos_id", text="Position ID")
-        self.tree.heading("symbol", text="Symbol")
-        self.tree.heading("side", text="Side")
-        self.tree.heading("lots", text="Volume (Lots)")
-        self.tree.heading("open_price", text="Open Price")
-        self.tree.heading("pnl", text="P&L")
-        self.tree.heading("close", text="Action")
-
-        # Configure column widths
-        self.tree.column("pos_id", width=100, anchor='center')
-        self.tree.column("symbol", width=100, anchor='center')
-        self.tree.column("side", width=60, anchor='center')
-        self.tree.column("lots", width=100, anchor='e')
-        self.tree.column("open_price", width=100, anchor='e')
-        self.tree.column("pnl", width=100, anchor='e')
-        self.tree.column("close", width=80, anchor='center')
-
-        self.tree.pack(side="top", fill="both", expand=True)
-
-        self.tree.bind("<Button-1>", self.on_tree_click)
-
-    def on_tree_click(self, event):
-        """Handle clicks on the treeview, specifically for the 'close' button."""
-        region = self.tree.identify_region(event.x, event.y)
-        if region == "cell":
-            column_id = self.tree.identify_column(event.x)
-            if column_id == "#7": # Column index for "close"
-                item_id = self.tree.identify_row(event.y)
-                pos_id = self.tree.item(item_id, "values")[0]
-                if messagebox.askyesno("Confirm Close", f"Are you sure you want to close position {pos_id}?"):
-                    print(f"Requesting to close position {pos_id}")
-                    self.trader.close_position(int(pos_id))
-
-    def update_positions(self, positions: Dict[int, Any]):
-        """Clears and repopulates the treeview with the latest position data."""
-        for i in self.tree.get_children():
-            self.tree.delete(i)
-
-        for pos_id, pos in positions.items():
-            pnl_str = f"{pos.current_pnl:.2f}"
-            values = (
-                pos.position_id,
-                pos.symbol_name,
-                pos.trade_side,
-                f"{pos.volume_lots:.2f}",
-                f"{pos.open_price:.5f}",
-                pnl_str,
-                "Close" # Text for the "button"
-            )
-            self.tree.insert("", "end", values=values)
 
 
 if __name__ == "__main__":
